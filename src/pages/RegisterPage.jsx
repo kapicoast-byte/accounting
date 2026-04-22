@@ -7,7 +7,6 @@ import LoadingSpinner from '../components/LoadingSpinner';
 
 const INITIAL_FORM = {
   displayName: '',
-  companyName: '',
   email: '',
   password: '',
   confirmPassword: '',
@@ -71,17 +70,6 @@ export default function RegisterPage() {
             value={form.displayName}
             onChange={handleChange}
             error={errors.displayName}
-            disabled={loading}
-          />
-          <FormField
-            label="Company name"
-            id="companyName"
-            name="companyName"
-            type="text"
-            autoComplete="organization"
-            value={form.companyName}
-            onChange={handleChange}
-            error={errors.companyName}
             disabled={loading}
           />
           <FormField

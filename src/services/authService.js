@@ -8,7 +8,7 @@ import {
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from './firebase';
 
-export async function registerUser({ email, password, displayName, companyName }) {
+export async function registerUser({ email, password, displayName }) {
   const credential = await createUserWithEmailAndPassword(auth, email, password);
   const user = credential.user;
 
@@ -18,7 +18,7 @@ export async function registerUser({ email, password, displayName, companyName }
     uid: user.uid,
     email,
     displayName,
-    companyName,
+    activeCompanyId: null,
     createdAt: serverTimestamp(),
   });
 

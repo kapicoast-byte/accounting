@@ -1,15 +1,39 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../services/firebase';
 import { getUserProfile } from '../services/authService';
+import { listUserCompanies, setActiveCompanyForUser } from '../services/companyService';
 
 const AppContext = createContext(null);
 
 export function AppProvider({ children }) {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
-  const [company, setCompany] = useState(null);
+  const [companies, setCompanies] = useState([]);
+  const [activeCompanyId, setActiveCompanyIdState] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [companiesLoading, setCompaniesLoading] = useState(false);
+
+  const loadCompaniesFor = useCallback(async (uid, profileDoc) => {
+    setCompaniesLoading(true);
+    try {
+      const list = await listUserCompanies(uid);
+      setCompanies(list);
+
+      const savedActive = profileDoc?.activeCompanyId;
+      const validActive = list.some((c) => c.companyId === savedActive)
+        ? savedActive
+        : list[0]?.companyId ?? null;
+
+      setActiveCompanyIdState(validActive);
+
+      if (validActive && validActive !== savedActive) {
+        await setActiveCompanyForUser(uid, validActive);
+      }
+    } finally {
+      setCompaniesLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -17,27 +41,55 @@ export function AppProvider({ children }) {
         setUser(firebaseUser);
         const userProfile = await getUserProfile(firebaseUser.uid);
         setProfile(userProfile);
-        if (userProfile?.companyName) {
-          setCompany({ name: userProfile.companyName });
-        }
+        await loadCompaniesFor(firebaseUser.uid, userProfile);
       } else {
         setUser(null);
         setProfile(null);
-        setCompany(null);
+        setCompanies([]);
+        setActiveCompanyIdState(null);
       }
       setAuthLoading(false);
     });
 
     return unsubscribe;
-  }, []);
+  }, [loadCompaniesFor]);
+
+  const switchCompany = useCallback(
+    async (companyId) => {
+      if (!user) return;
+      if (!companies.some((c) => c.companyId === companyId)) return;
+      setActiveCompanyIdState(companyId);
+      await setActiveCompanyForUser(user.uid, companyId);
+    },
+    [user, companies],
+  );
+
+  const refreshCompanies = useCallback(
+    async (newActiveCompanyId) => {
+      if (!user) return;
+      const list = await listUserCompanies(user.uid);
+      setCompanies(list);
+      if (newActiveCompanyId && list.some((c) => c.companyId === newActiveCompanyId)) {
+        setActiveCompanyIdState(newActiveCompanyId);
+        await setActiveCompanyForUser(user.uid, newActiveCompanyId);
+      }
+    },
+    [user],
+  );
+
+  const activeCompany =
+    companies.find((c) => c.companyId === activeCompanyId) ?? null;
 
   const value = {
     user,
     profile,
-    company,
+    companies,
+    activeCompany,
+    activeCompanyId,
     authLoading,
-    setProfile,
-    setCompany,
+    companiesLoading,
+    switchCompany,
+    refreshCompanies,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
