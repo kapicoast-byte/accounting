@@ -7,6 +7,9 @@ const NAV_LINKS = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/inventory', label: 'Inventory' },
   { to: '/sales',     label: 'Sales' },
+  { to: '/purchases', label: 'Purchases' },
+  { to: '/expenses',  label: 'Expenses' },
+  { to: '/payables',  label: 'Payables' },
 ];
 
 export default function Navbar() {

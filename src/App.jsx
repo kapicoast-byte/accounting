@@ -11,6 +11,11 @@ import InventoryPage from './pages/InventoryPage';
 import SalesPage from './pages/SalesPage';
 import CreateInvoicePage from './pages/CreateInvoicePage';
 import ViewInvoicePage from './pages/ViewInvoicePage';
+import PurchasesPage from './pages/PurchasesPage';
+import CreatePurchasePage from './pages/CreatePurchasePage';
+import ViewPurchasePage from './pages/ViewPurchasePage';
+import ExpensesPage from './pages/ExpensesPage';
+import PayablesPage from './pages/PayablesPage';
 
 export default function App() {
   return (
@@ -30,6 +35,11 @@ export default function App() {
                 <Route path="/sales" element={<SalesPage />} />
                 <Route path="/sales/new" element={<CreateInvoicePage />} />
                 <Route path="/sales/:saleId" element={<ViewInvoicePage />} />
+                <Route path="/purchases" element={<PurchasesPage />} />
+                <Route path="/purchases/new" element={<CreatePurchasePage />} />
+                <Route path="/purchases/:purchaseId" element={<ViewPurchasePage />} />
+                <Route path="/expenses" element={<ExpensesPage />} />
+                <Route path="/payables" element={<PayablesPage />} />
               </Route>
             </Route>
           </Route>
