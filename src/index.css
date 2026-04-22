@@ -9,3 +9,11 @@ body {
   font-family: system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+
+@media print {
+  /* Show only the invoice; hide all chrome */
+  body > #root > * { display: none !important; }
+  #print-invoice    { display: block !important; }
+
+  @page { margin: 12mm; }
+}

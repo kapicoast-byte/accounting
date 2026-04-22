@@ -6,6 +6,7 @@ import CompanySwitcher from './CompanySwitcher';
 const NAV_LINKS = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/inventory', label: 'Inventory' },
+  { to: '/sales',     label: 'Sales' },
 ];
 
 export default function Navbar() {
@@ -18,7 +19,7 @@ export default function Navbar() {
   }
 
   return (
-    <header className="border-b border-gray-200 bg-white">
+    <header className="border-b border-gray-200 bg-white print:hidden">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-3">
         <div className="flex items-center gap-6">
           <Link to="/dashboard" className="text-lg font-bold text-gray-900">

@@ -8,6 +8,9 @@ import RegisterPage from './pages/RegisterPage';
 import CreateCompanyPage from './pages/CreateCompanyPage';
 import DashboardPage from './pages/DashboardPage';
 import InventoryPage from './pages/InventoryPage';
+import SalesPage from './pages/SalesPage';
+import CreateInvoicePage from './pages/CreateInvoicePage';
+import ViewInvoicePage from './pages/ViewInvoicePage';
 
 export default function App() {
   return (
@@ -24,6 +27,9 @@ export default function App() {
               <Route element={<AppLayout />}>
                 <Route path="/dashboard" element={<DashboardPage />} />
                 <Route path="/inventory" element={<InventoryPage />} />
+                <Route path="/sales" element={<SalesPage />} />
+                <Route path="/sales/new" element={<CreateInvoicePage />} />
+                <Route path="/sales/:saleId" element={<ViewInvoicePage />} />
               </Route>
             </Route>
           </Route>
