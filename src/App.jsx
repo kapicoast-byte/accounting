@@ -7,6 +7,7 @@ import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import CreateCompanyPage from './pages/CreateCompanyPage';
 import DashboardPage from './pages/DashboardPage';
+import InventoryPage from './pages/InventoryPage';
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
             <Route element={<CompanyRequiredRoute />}>
               <Route element={<AppLayout />}>
                 <Route path="/dashboard" element={<DashboardPage />} />
+                <Route path="/inventory" element={<InventoryPage />} />
               </Route>
             </Route>
           </Route>

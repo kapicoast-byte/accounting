@@ -1,7 +1,12 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { logoutUser } from '../services/authService';
 import CompanySwitcher from './CompanySwitcher';
+
+const NAV_LINKS = [
+  { to: '/dashboard', label: 'Dashboard' },
+  { to: '/inventory', label: 'Inventory' },
+];
 
 export default function Navbar() {
   const { user } = useApp();
@@ -14,10 +19,29 @@ export default function Navbar() {
 
   return (
     <header className="border-b border-gray-200 bg-white">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-        <Link to="/dashboard" className="text-lg font-bold text-gray-900">
-          SmartBooks
-        </Link>
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-3">
+        <div className="flex items-center gap-6">
+          <Link to="/dashboard" className="text-lg font-bold text-gray-900">
+            SmartBooks
+          </Link>
+          <nav className="flex items-center gap-1 text-sm">
+            {NAV_LINKS.map((link) => (
+              <NavLink
+                key={link.to}
+                to={link.to}
+                className={({ isActive }) =>
+                  `rounded-md px-3 py-1.5 transition ${
+                    isActive
+                      ? 'bg-blue-50 text-blue-700 font-medium'
+                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  }`
+                }
+              >
+                {link.label}
+              </NavLink>
+            ))}
+          </nav>
+        </div>
 
         <div className="flex items-center gap-4">
           <CompanySwitcher />
