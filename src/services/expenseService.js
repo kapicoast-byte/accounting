@@ -1,17 +1,19 @@
 import {
   collection,
   doc,
-  addDoc,
   getDocs,
   updateDoc,
   deleteDoc,
   query,
   where,
   orderBy,
+  writeBatch,
   Timestamp,
   serverTimestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
+import { buildJournalEntry, newJournalRef } from './journalService';
+import { paymentModeToAccountId, expenseCategoryToAccountId } from '../utils/accountConstants';
 
 function expensesCol(companyId) {
   return collection(db, 'companies', companyId, 'expenses');
@@ -41,27 +43,45 @@ export async function createExpense(companyId, { date, category, amount, paidBy,
   const amt = Number(amount);
   if (!Number.isFinite(amt) || amt <= 0) throw new Error('Amount must be greater than 0.');
 
-  const ref = await addDoc(expensesCol(companyId), {
-    date: Timestamp.fromDate(new Date(date)),
+  const expenseRef = doc(expensesCol(companyId));
+  const journalRef = newJournalRef(companyId);
+  const batch = writeBatch(db);
+
+  batch.set(expenseRef, {
+    date:      Timestamp.fromDate(new Date(date)),
     category,
-    amount: amt,
+    amount:    amt,
     paidBy,
-    payee: payee.trim(),
-    notes: notes.trim(),
+    payee:     payee.trim(),
+    notes:     notes.trim(),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
-  return { expenseId: ref.id };
+
+  batch.set(journalRef, buildJournalEntry({
+    date,
+    description: `Expense — ${category}${payee ? ` (${payee.trim()})` : ''}`,
+    sourceType:  'expense',
+    sourceId:    expenseRef.id,
+    sourceRef:   category,
+    lines: [
+      { accountId: expenseCategoryToAccountId(category), debit: amt, credit: 0   },
+      { accountId: paymentModeToAccountId(paidBy),        debit: 0,   credit: amt },
+    ],
+  }));
+
+  await batch.commit();
+  return { expenseId: expenseRef.id };
 }
 
 export async function updateExpense(companyId, expenseId, updates) {
   const payload = { updatedAt: serverTimestamp() };
-  if (updates.date !== undefined)     payload.date = Timestamp.fromDate(new Date(updates.date));
+  if (updates.date     !== undefined) payload.date     = Timestamp.fromDate(new Date(updates.date));
   if (updates.category !== undefined) payload.category = updates.category;
-  if (updates.amount !== undefined)   payload.amount = Number(updates.amount);
-  if (updates.paidBy !== undefined)   payload.paidBy = updates.paidBy;
-  if (updates.payee !== undefined)    payload.payee = updates.payee.trim();
-  if (updates.notes !== undefined)    payload.notes = updates.notes.trim();
+  if (updates.amount   !== undefined) payload.amount   = Number(updates.amount);
+  if (updates.paidBy   !== undefined) payload.paidBy   = updates.paidBy;
+  if (updates.payee    !== undefined) payload.payee    = updates.payee.trim();
+  if (updates.notes    !== undefined) payload.notes    = updates.notes.trim();
   await updateDoc(expenseDoc(companyId, expenseId), payload);
 }
 

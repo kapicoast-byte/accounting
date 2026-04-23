@@ -6,12 +6,13 @@ import {
   query,
   where,
   orderBy,
-  updateDoc,
   runTransaction,
   Timestamp,
   serverTimestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
+import { buildJournalEntry, newJournalRef } from './journalService';
+import { paymentModeToAccountId } from '../utils/accountConstants';
 
 export const PAYMENT_MODES = ['Cash', 'Card', 'UPI', 'Credit'];
 export const GST_RATES = [0, 5, 12, 18, 28];
@@ -51,7 +52,6 @@ export function computeInvoiceTotals({ lineItems, discountType, discountValue })
 
 // ─── invoice number ──────────────────────────────────────────────────────────
 
-// Called inside a transaction — takes existing tx reads as arguments.
 function resolveNextInvoiceNumber(counterData, currentYear) {
   if (!counterData || counterData.year !== currentYear) {
     return { newCount: 1, year: currentYear };
@@ -75,16 +75,16 @@ export async function createSale(companyId, { customer, lineItems, discountType,
   const currentYear = new Date().getFullYear();
 
   const counterRef = counterDocRef(companyId);
-  const saleRef = doc(salesCol(companyId));
-  const adjRefs = inventoryLines.map(() => doc(adjustmentsCol(companyId)));
-  const invRefs = inventoryLines.map((l) => inventoryDocRef(companyId, l.itemId));
+  const saleRef    = doc(salesCol(companyId));
+  const adjRefs    = inventoryLines.map(() => doc(adjustmentsCol(companyId)));
+  const invRefs    = inventoryLines.map((l) => inventoryDocRef(companyId, l.itemId));
+  const journalRef = newJournalRef(companyId);
 
   return await runTransaction(db, async (tx) => {
-    // ── reads first ──
+    // ── reads ──
     const counterSnap = await tx.get(counterRef);
-    const invSnaps = await Promise.all(invRefs.map((r) => tx.get(r)));
+    const invSnaps    = await Promise.all(invRefs.map((r) => tx.get(r)));
 
-    // ── validate stock ──
     for (let i = 0; i < inventoryLines.length; i++) {
       const line = inventoryLines[i];
       const snap = invSnaps[i];
@@ -97,76 +97,84 @@ export async function createSale(companyId, { customer, lineItems, discountType,
       }
     }
 
-    // ── resolve invoice number ──
+    // ── invoice number ──
     const { newCount, year } = resolveNextInvoiceNumber(
       counterSnap.exists() ? counterSnap.data() : null,
       currentYear,
     );
     const invoiceNumber = formatInvoiceNumber(year, newCount);
 
-    // ── writes ──
+    // ── sale doc ──
     tx.set(counterRef, { count: newCount, year });
 
     const saleData = {
       invoiceNumber,
-      date: Timestamp.fromDate(new Date(date)),
-      dueDate: dueDate ? Timestamp.fromDate(new Date(dueDate)) : null,
+      date:     Timestamp.fromDate(new Date(date)),
+      dueDate:  dueDate ? Timestamp.fromDate(new Date(dueDate)) : null,
       customerId: customer.customerId ?? null,
       customerSnapshot: {
-        name: customer.name ?? '',
-        phone: customer.phone ?? '',
+        name:    customer.name    ?? '',
+        phone:   customer.phone   ?? '',
         address: customer.address ?? '',
-        GSTIN: customer.GSTIN ?? '',
+        GSTIN:   customer.GSTIN   ?? '',
       },
       lineItems: lineItems.map((l) => ({
-        itemId: l.itemId === 'custom' ? null : (l.itemId ?? null),
-        itemName: l.itemName,
-        unit: l.unit,
-        quantity: Number(l.quantity),
-        unitPrice: Number(l.unitPrice),
-        gstRate: Number(l.gstRate),
+        itemId:       l.itemId === 'custom' ? null : (l.itemId ?? null),
+        itemName:     l.itemName,
+        unit:         l.unit,
+        quantity:     Number(l.quantity),
+        unitPrice:    Number(l.unitPrice),
+        gstRate:      Number(l.gstRate),
         lineSubtotal: Number(l.quantity) * Number(l.unitPrice),
-        lineGST: (Number(l.quantity) * Number(l.unitPrice) * Number(l.gstRate)) / 100,
+        lineGST:      (Number(l.quantity) * Number(l.unitPrice) * Number(l.gstRate)) / 100,
       })),
-      subtotal: totals.subtotal,
-      totalGST: totals.totalGST,
+      subtotal:       totals.subtotal,
+      totalGST:       totals.totalGST,
       discountType,
-      discountValue: Number(discountValue) || 0,
+      discountValue:  Number(discountValue) || 0,
       discountAmount: totals.discountAmount,
-      grandTotal: totals.grandTotal,
+      grandTotal:     totals.grandTotal,
       paymentMode,
       paidAmount,
       balanceDue,
       status,
-      notes: notes ?? '',
+      notes:     notes ?? '',
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
-
     tx.set(saleRef, saleData);
 
+    // ── stock adjustments ──
     for (let i = 0; i < inventoryLines.length; i++) {
-      const line = inventoryLines[i];
-      const snap = invSnaps[i];
+      const line      = inventoryLines[i];
+      const snap      = invSnaps[i];
       const prevStock = Number(snap.data().currentStock) || 0;
-      const newStock = prevStock - line.quantity;
-
+      const newStock  = prevStock - line.quantity;
       tx.update(invRefs[i], { currentStock: newStock, updatedAt: serverTimestamp() });
-
       tx.set(adjRefs[i], {
-        itemId: line.itemId,
-        itemName: line.itemName,
-        type: 'out',
-        quantity: line.quantity,
-        reason: 'Sale',
-        previousStock: prevStock,
-        newStock,
-        saleId: saleRef.id,
-        saleInvoiceNumber: invoiceNumber,
-        createdBy: null,
-        createdAt: serverTimestamp(),
+        itemId: line.itemId, itemName: line.itemName,
+        type: 'out', quantity: line.quantity, reason: 'Sale',
+        previousStock: prevStock, newStock,
+        saleId: saleRef.id, saleInvoiceNumber: invoiceNumber,
+        createdBy: null, createdAt: serverTimestamp(),
       });
     }
+
+    // ── journal entry ──
+    const receivingAccount = isPaid ? paymentModeToAccountId(paymentMode) : 'accounts_receivable';
+    const netRevenue = totals.subtotal - totals.discountAmount;
+    tx.set(journalRef, buildJournalEntry({
+      date,
+      description: `Sale — ${invoiceNumber} to ${customer?.name ?? 'Customer'}`,
+      sourceType:  'sale',
+      sourceId:    saleRef.id,
+      sourceRef:   invoiceNumber,
+      lines: [
+        { accountId: receivingAccount,  debit: totals.grandTotal, credit: 0              },
+        { accountId: 'sales_revenue',   debit: 0,                 credit: netRevenue     },
+        { accountId: 'gst_output',      debit: 0,                 credit: totals.totalGST },
+      ],
+    }));
 
     return { saleId: saleRef.id, invoiceNumber };
   });
@@ -195,30 +203,43 @@ export async function listSales(companyId, { fromDate, toDate } = {}) {
   return snap.docs.map((d) => ({ saleId: d.id, ...d.data() }));
 }
 
-// ─── mark as paid ────────────────────────────────────────────────────────────
+// ─── record payment (converts AR → Cash/Bank) ────────────────────────────────
 
 export async function recordPayment(companyId, saleId, { amount, paymentMode }) {
-  const saleRef = doc(db, 'companies', companyId, 'sales', saleId);
-  const snap = await getDoc(saleRef);
-  if (!snap.exists()) throw new Error('Invoice not found.');
+  const saleRef    = doc(db, 'companies', companyId, 'sales', saleId);
+  const journalRef = newJournalRef(companyId);
 
-  const sale = snap.data();
-  const newPaid = Math.min((sale.paidAmount ?? 0) + Number(amount), sale.grandTotal);
-  const newBalance = sale.grandTotal - newPaid;
-  const newStatus =
-    newBalance <= 0
-      ? SALE_STATUS.PAID
-      : newPaid > 0
-        ? SALE_STATUS.PARTIAL
-        : SALE_STATUS.UNPAID;
+  return await runTransaction(db, async (tx) => {
+    const snap = await tx.get(saleRef);
+    if (!snap.exists()) throw new Error('Invoice not found.');
 
-  await updateDoc(saleRef, {
-    paidAmount: newPaid,
-    balanceDue: newBalance,
-    status: newStatus,
-    paymentMode,
-    updatedAt: serverTimestamp(),
+    const sale     = snap.data();
+    const n        = Number(amount);
+    const newPaid  = Math.min((sale.paidAmount ?? 0) + n, sale.grandTotal);
+    const newBal   = sale.grandTotal - newPaid;
+    const newStatus =
+      newBal  <= 0 ? SALE_STATUS.PAID :
+      newPaid  > 0 ? SALE_STATUS.PARTIAL :
+                     SALE_STATUS.UNPAID;
+
+    tx.update(saleRef, {
+      paidAmount: newPaid, balanceDue: newBal,
+      status: newStatus, paymentMode,
+      updatedAt: serverTimestamp(),
+    });
+
+    tx.set(journalRef, buildJournalEntry({
+      date:        new Date(),
+      description: `Payment received — ${sale.invoiceNumber}`,
+      sourceType:  'payment_in',
+      sourceId:    saleId,
+      sourceRef:   sale.invoiceNumber,
+      lines: [
+        { accountId: paymentModeToAccountId(paymentMode), debit: n, credit: 0 },
+        { accountId: 'accounts_receivable',               debit: 0, credit: n },
+      ],
+    }));
+
+    return { paidAmount: newPaid, balanceDue: newBal, status: newStatus };
   });
-
-  return { paidAmount: newPaid, balanceDue: newBalance, status: newStatus };
 }

@@ -16,6 +16,10 @@ import CreatePurchasePage from './pages/CreatePurchasePage';
 import ViewPurchasePage from './pages/ViewPurchasePage';
 import ExpensesPage from './pages/ExpensesPage';
 import PayablesPage from './pages/PayablesPage';
+import AccountsPage from './pages/AccountsPage';
+import LedgerPage from './pages/LedgerPage';
+import JournalPage from './pages/JournalPage';
+import TrialBalancePage from './pages/TrialBalancePage';
 
 export default function App() {
   return (
@@ -40,6 +44,11 @@ export default function App() {
                 <Route path="/purchases/:purchaseId" element={<ViewPurchasePage />} />
                 <Route path="/expenses" element={<ExpensesPage />} />
                 <Route path="/payables" element={<PayablesPage />} />
+                <Route path="/accounts" element={<AccountsPage />} />
+                <Route path="/ledger" element={<LedgerPage />} />
+                <Route path="/ledger/:accountId" element={<LedgerPage />} />
+                <Route path="/journal" element={<JournalPage />} />
+                <Route path="/trial-balance" element={<TrialBalancePage />} />
               </Route>
             </Route>
           </Route>
