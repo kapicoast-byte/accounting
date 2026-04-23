@@ -8,10 +8,13 @@ import {
   where,
   orderBy,
   updateDoc,
+  deleteDoc,
   setDoc,
+  writeBatch,
   serverTimestamp,
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { db, storage } from './firebase';
 import { listMemberCompanyIds, ROLES } from './memberService';
 
 export const COMPANY_TYPE = {
@@ -20,6 +23,8 @@ export const COMPANY_TYPE = {
 };
 
 const companiesCol = collection(db, 'companies');
+
+// ─── create ───────────────────────────────────────────────────────────────────
 
 export async function createCompany({
   companyName,
@@ -51,10 +56,10 @@ export async function createCompany({
     phone: phone.trim(),
     email: email.trim().toLowerCase(),
     financialYearStart,
+    logoUrl: null,
     createdAt: serverTimestamp(),
   });
 
-  // Creator is always the admin member of their company.
   await setDoc(doc(db, 'companies', docRef.id, 'members', ownerUid), {
     uid:         ownerUid,
     email:       (ownerEmail || email).toLowerCase(),
@@ -67,13 +72,14 @@ export async function createCompany({
   return { companyId: docRef.id };
 }
 
+// ─── read ─────────────────────────────────────────────────────────────────────
+
 export async function getCompany(companyId) {
   const snap = await getDoc(doc(db, 'companies', companyId));
   return snap.exists() ? { companyId: snap.id, ...snap.data() } : null;
 }
 
 export async function listUserCompanies(uid) {
-  // Fetch companies from both sources and merge.
   const [rbacIds, ownerSnap] = await Promise.all([
     listMemberCompanyIds(uid),
     getDocs(query(companiesCol, where('ownerUid', '==', uid), orderBy('createdAt', 'asc'))),
@@ -82,7 +88,6 @@ export async function listUserCompanies(uid) {
   const map = new Map();
   ownerSnap.docs.forEach((d) => map.set(d.id, { companyId: d.id, ...d.data() }));
 
-  // Fetch any RBAC-only companies (member of but not owner)
   await Promise.all(
     rbacIds
       .filter((id) => !map.has(id))
@@ -99,7 +104,6 @@ export async function listUserCompanies(uid) {
   });
 }
 
-// Returns parent companies where the given uid is an admin member.
 export async function listAdminParentCompaniesForUser(uid) {
   const all = await listUserCompanies(uid);
   const parents = all.filter((c) => c.type === COMPANY_TYPE.PARENT);
@@ -119,18 +123,81 @@ export async function listAdminParentCompaniesForUser(uid) {
   return withRoles.filter((c) => c.role === ROLES.ADMIN);
 }
 
+// ─── update profile ───────────────────────────────────────────────────────────
+
+export async function updateCompanyProfile(companyId, {
+  companyName, address, GSTIN, phone, email, financialYearStart,
+}) {
+  const updates = { updatedAt: serverTimestamp() };
+  if (companyName        !== undefined) updates.companyName        = companyName.trim();
+  if (address            !== undefined) updates.address            = address.trim();
+  if (GSTIN              !== undefined) updates.GSTIN              = GSTIN.trim().toUpperCase();
+  if (phone              !== undefined) updates.phone              = phone.trim();
+  if (email              !== undefined) updates.email              = email.trim().toLowerCase();
+  if (financialYearStart !== undefined) updates.financialYearStart = financialYearStart;
+  await updateDoc(doc(db, 'companies', companyId), updates);
+}
+
 export async function updateCompany(companyId, updates) {
   await updateDoc(doc(db, 'companies', companyId), updates);
 }
 
-export async function deleteCompany(companyId) {
-  // Soft-delete: mark as deleted. Hard deletes need a Cloud Function to
-  // cascade into subcollections, which can't be done client-side.
-  await updateDoc(doc(db, 'companies', companyId), {
-    deleted: true,
-    deletedAt: serverTimestamp(),
-  });
+// ─── logo ─────────────────────────────────────────────────────────────────────
+
+export async function uploadCompanyLogo(companyId, file) {
+  const logoRef = ref(storage, `logos/${companyId}`);
+  const snapshot = await uploadBytes(logoRef, file);
+  const url = await getDownloadURL(snapshot.ref);
+  await updateDoc(doc(db, 'companies', companyId), { logoUrl: url });
+  return url;
 }
+
+export async function removeCompanyLogo(companyId) {
+  try {
+    await deleteObject(ref(storage, `logos/${companyId}`));
+  } catch { /* not found — nothing to do */ }
+  await updateDoc(doc(db, 'companies', companyId), { logoUrl: null });
+}
+
+// ─── delete ───────────────────────────────────────────────────────────────────
+
+const SUBCOLLECTIONS = [
+  'members', 'inventory', 'sales', 'purchases',
+  'expenses', 'journal', 'stockAdjustments', 'meta',
+];
+
+async function deleteSubcollection(companyId, name) {
+  const snap = await getDocs(collection(db, 'companies', companyId, name));
+  if (snap.empty) return;
+  for (let i = 0; i < snap.docs.length; i += 400) {
+    const batch = writeBatch(db);
+    snap.docs.slice(i, i + 400).forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+  }
+}
+
+export async function hardDeleteCompany(companyId) {
+  // Block deletion if subsidiaries exist.
+  const subSnap = await getDocs(
+    query(companiesCol, where('parentCompanyId', '==', companyId)),
+  );
+  if (!subSnap.empty) {
+    throw new Error('Remove all subsidiary companies before deleting this parent company.');
+  }
+
+  // Delete every subcollection in parallel.
+  await Promise.all(SUBCOLLECTIONS.map((name) => deleteSubcollection(companyId, name)));
+
+  // Delete company document.
+  await deleteDoc(doc(db, 'companies', companyId));
+
+  // Best-effort logo removal.
+  try {
+    await deleteObject(ref(storage, `logos/${companyId}`));
+  } catch { /* may not exist */ }
+}
+
+// ─── misc ─────────────────────────────────────────────────────────────────────
 
 export async function setActiveCompanyForUser(uid, companyId) {
   await updateDoc(doc(db, 'users', uid), { activeCompanyId: companyId });

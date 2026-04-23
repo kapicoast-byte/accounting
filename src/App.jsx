@@ -24,6 +24,7 @@ import TrialBalancePage from './pages/TrialBalancePage';
 import GSTPage from './pages/GSTPage';
 import ReportsPage from './pages/ReportsPage';
 import MembersPage from './pages/MembersPage';
+import CompanyProfilePage from './pages/CompanyProfilePage';
 import ProfitLossPage from './pages/reports/ProfitLossPage';
 import BalanceSheetPage from './pages/reports/BalanceSheetPage';
 import CashFlowPage from './pages/reports/CashFlowPage';
@@ -59,6 +60,7 @@ export default function App() {
                 <Route path="/journal" element={<JournalPage />} />
                 <Route path="/trial-balance" element={<TrialBalancePage />} />
                 <Route path="/gst" element={<GSTPage />} />
+                <Route path="/company/profile" element={<CompanyProfilePage />} />
                 <Route path="/reports" element={<ReportsPage />} />
                 <Route path="/reports/profit-loss" element={<ProfitLossPage />} />
 
