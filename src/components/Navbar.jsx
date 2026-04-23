@@ -11,6 +11,7 @@ const NAV_LINKS = [
   { to: '/purchases',  label: 'Purchases'  },
   { to: '/expenses',   label: 'Expenses'   },
   { to: '/payables',   label: 'Payables'   },
+  { to: '/gst',        label: 'GST'        },
 ];
 
 const ACCOUNTS_LINKS = [
