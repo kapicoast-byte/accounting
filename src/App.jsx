@@ -22,6 +22,11 @@ import JournalPage from './pages/JournalPage';
 import TrialBalancePage from './pages/TrialBalancePage';
 import GSTPage from './pages/GSTPage';
 import ReportsPage from './pages/ReportsPage';
+import ProfitLossPage from './pages/reports/ProfitLossPage';
+import BalanceSheetPage from './pages/reports/BalanceSheetPage';
+import CashFlowPage from './pages/reports/CashFlowPage';
+import SalesReportPage from './pages/reports/SalesReportPage';
+import InventoryReportPage from './pages/reports/InventoryReportPage';
 
 export default function App() {
   return (
@@ -53,6 +58,11 @@ export default function App() {
                 <Route path="/trial-balance" element={<TrialBalancePage />} />
                 <Route path="/gst" element={<GSTPage />} />
                 <Route path="/reports" element={<ReportsPage />} />
+                <Route path="/reports/profit-loss" element={<ProfitLossPage />} />
+                <Route path="/reports/balance-sheet" element={<BalanceSheetPage />} />
+                <Route path="/reports/cash-flow" element={<CashFlowPage />} />
+                <Route path="/reports/sales" element={<SalesReportPage />} />
+                <Route path="/reports/inventory" element={<InventoryReportPage />} />
               </Route>
             </Route>
           </Route>
