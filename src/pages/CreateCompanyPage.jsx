@@ -3,9 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import {
   createCompany,
-  listParentCompaniesForUser,
+  listAdminParentCompaniesForUser,
   COMPANY_TYPE,
 } from '../services/companyService';
+import { useRole } from '../hooks/useRole';
+import AccessDenied from '../components/AccessDenied';
 import { validateCompanyForm } from '../utils/validation';
 import FormField from '../components/FormField';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -30,6 +32,7 @@ const MONTHS = [
 export default function CreateCompanyPage() {
   const navigate = useNavigate();
   const { user, companies, refreshCompanies } = useApp();
+  const { isAdmin } = useRole();
 
   const [form, setForm] = useState(INITIAL_FORM);
   const [parents, setParents] = useState([]);
@@ -39,10 +42,13 @@ export default function CreateCompanyPage() {
 
   const isFirstCompany = companies.length === 0;
 
+  // Non-admins with existing companies cannot create more companies.
+  const canCreate = isFirstCompany || isAdmin;
+
   useEffect(() => {
     if (!user || isFirstCompany) return;
-    listParentCompaniesForUser(user.uid).then(setParents);
-  }, [user, isFirstCompany]);
+    listAdminParentCompaniesForUser(user.uid).then(setParents);
+  }, [user, isFirstCompany, isAdmin]);
 
   function handleChange(e) {
     const { name, value } = e.target;
@@ -66,6 +72,7 @@ export default function CreateCompanyPage() {
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (!canCreate) return;
     const validationErrors = validateCompanyForm(form);
     if (Object.keys(validationErrors).length) {
       setErrors(validationErrors);
@@ -79,6 +86,8 @@ export default function CreateCompanyPage() {
         type: form.type,
         parentCompanyId: form.type === COMPANY_TYPE.SUBSIDIARY ? form.parentCompanyId : null,
         ownerUid: user.uid,
+        ownerEmail: user.email ?? '',
+        ownerDisplayName: user.displayName ?? '',
         address: form.address,
         GSTIN: form.GSTIN,
         phone: form.phone,
@@ -95,6 +104,10 @@ export default function CreateCompanyPage() {
   }
 
   const fyMonth = form.financialYearStart.split('-')[0] ?? '04';
+
+  if (!isFirstCompany && !isAdmin) {
+    return <AccessDenied message="Only company admins can create additional companies." />;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 px-4 py-8">

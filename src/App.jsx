@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppProvider } from './context/AppContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import CompanyRequiredRoute from './components/CompanyRequiredRoute';
+import RoleRequiredRoute from './components/RoleRequiredRoute';
 import AppLayout from './components/AppLayout';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
@@ -22,6 +23,7 @@ import JournalPage from './pages/JournalPage';
 import TrialBalancePage from './pages/TrialBalancePage';
 import GSTPage from './pages/GSTPage';
 import ReportsPage from './pages/ReportsPage';
+import MembersPage from './pages/MembersPage';
 import ProfitLossPage from './pages/reports/ProfitLossPage';
 import BalanceSheetPage from './pages/reports/BalanceSheetPage';
 import CashFlowPage from './pages/reports/CashFlowPage';
@@ -59,6 +61,11 @@ export default function App() {
                 <Route path="/gst" element={<GSTPage />} />
                 <Route path="/reports" element={<ReportsPage />} />
                 <Route path="/reports/profit-loss" element={<ProfitLossPage />} />
+
+                {/* Admins and managers can view; staff get Access Denied */}
+                <Route element={<RoleRequiredRoute permission="edit" message="Only admins and managers can view the team members page." />}>
+                  <Route path="/members" element={<MembersPage />} />
+                </Route>
                 <Route path="/reports/balance-sheet" element={<BalanceSheetPage />} />
                 <Route path="/reports/cash-flow" element={<CashFlowPage />} />
                 <Route path="/reports/sales" element={<SalesReportPage />} />

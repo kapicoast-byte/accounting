@@ -4,6 +4,7 @@ import { listExpenses, deleteExpense } from '../services/expenseService';
 import { formatCurrency } from '../utils/format';
 import { startOfDay, endOfDay, toJsDate } from '../utils/dateUtils';
 import LoadingSpinner from '../components/LoadingSpinner';
+import RoleGuard from '../components/RoleGuard';
 import ExpenseModal from '../components/expenses/ExpenseModal';
 
 function fmtDate(ts) {
@@ -75,10 +76,12 @@ export default function ExpensesPage() {
           <h1 className="text-2xl font-bold text-gray-900">Expenses</h1>
           <p className="text-sm text-gray-500">Non-inventory operational costs.</p>
         </div>
-        <button type="button" onClick={openAdd}
-          className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700">
-          + Record expense
-        </button>
+        <RoleGuard permission="edit">
+          <button type="button" onClick={openAdd}
+            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700">
+            + Record expense
+          </button>
+        </RoleGuard>
       </div>
 
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">
@@ -133,10 +136,14 @@ export default function ExpensesPage() {
                     <td className="px-4 py-2 text-right font-semibold text-gray-800">{formatCurrency(exp.amount)}</td>
                     <td className="px-4 py-2">
                       <div className="flex justify-end gap-2 text-xs">
-                        <button type="button" onClick={() => openEdit(exp)}
-                          className="rounded-md border border-gray-300 bg-white px-2 py-1 text-gray-700 hover:bg-gray-50">Edit</button>
-                        <button type="button" onClick={() => handleDelete(exp)}
-                          className="rounded-md border border-red-200 bg-white px-2 py-1 text-red-600 hover:bg-red-50">Delete</button>
+                        <RoleGuard permission="edit">
+                          <button type="button" onClick={() => openEdit(exp)}
+                            className="rounded-md border border-gray-300 bg-white px-2 py-1 text-gray-700 hover:bg-gray-50">Edit</button>
+                        </RoleGuard>
+                        <RoleGuard permission="delete">
+                          <button type="button" onClick={() => handleDelete(exp)}
+                            className="rounded-md border border-red-200 bg-white px-2 py-1 text-red-600 hover:bg-red-50">Delete</button>
+                        </RoleGuard>
                       </div>
                     </td>
                   </tr>

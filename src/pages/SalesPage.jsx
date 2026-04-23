@@ -6,6 +6,7 @@ import { startOfDay, endOfDay } from '../utils/dateUtils';
 import { formatCurrency } from '../utils/format';
 import { toJsDate } from '../utils/dateUtils';
 import LoadingSpinner from '../components/LoadingSpinner';
+import RoleGuard from '../components/RoleGuard';
 import PaymentStatusBadge from '../components/sales/PaymentStatusBadge';
 import PaymentModal from '../components/sales/PaymentModal';
 
@@ -83,6 +84,7 @@ export default function SalesPage() {
           <h1 className="text-2xl font-bold text-gray-900">Sales & Invoices</h1>
           <p className="text-sm text-gray-500">All invoices for the active company.</p>
         </div>
+        {/* Staff can create sales; all roles see this button */}
         <Link to="/sales/new"
           className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700">
           + New invoice

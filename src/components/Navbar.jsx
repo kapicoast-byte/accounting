@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import { Link, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { logoutUser } from '../services/authService';
+import { useRole } from '../hooks/useRole';
+import { ROLE_LABELS } from '../services/memberService';
 import CompanySwitcher from './CompanySwitcher';
 
 const NAV_LINKS = [
@@ -83,6 +85,7 @@ function AccountsDropdown() {
 
 export default function Navbar() {
   const { user } = useApp();
+  const { role } = useRole();
   const navigate = useNavigate();
 
   async function handleLogout() {
@@ -119,8 +122,32 @@ export default function Navbar() {
 
         <div className="flex items-center gap-4">
           <CompanySwitcher />
-          <div className="hidden text-sm text-gray-600 sm:block">
-            {user?.displayName}
+
+          {/* Team members link — visible to admins and managers */}
+          {(role === 'admin' || role === 'manager') && (
+            <NavLink
+              to="/members"
+              title="Team Members"
+              className={({ isActive }) =>
+                `flex items-center gap-1 rounded-md px-2.5 py-1.5 text-sm transition ${
+                  isActive
+                    ? 'bg-blue-50 text-blue-700 font-medium'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                }`
+              }
+            >
+              <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                <path d="M10 9a3 3 0 100-6 3 3 0 000 6zM6 8a2 2 0 11-4 0 2 2 0 014 0zM1.49 15.326a.78.78 0 01-.358-.442 3 3 0 014.308-3.516 6.484 6.484 0 00-1.905 3.959c-.023.222-.014.442.025.654a4.97 4.97 0 01-2.07-.655zM16.44 15.98a4.97 4.97 0 002.07-.654.78.78 0 00.357-.442 3 3 0 00-4.308-3.517 6.484 6.484 0 011.907 3.96 2.32 2.32 0 01-.026.654zM18 8a2 2 0 11-4 0 2 2 0 014 0zM5.304 16.19a.844.844 0 01-.277-.71 5 5 0 019.947 0 .843.843 0 01-.277.71A6.975 6.975 0 0110 18a6.974 6.974 0 01-4.696-1.81z" />
+              </svg>
+              <span className="hidden lg:inline">Members</span>
+            </NavLink>
+          )}
+
+          <div className="hidden flex-col items-end sm:flex">
+            <span className="text-sm text-gray-700">{user?.displayName}</span>
+            {role && (
+              <span className="text-xs text-gray-400 capitalize">{ROLE_LABELS[role] ?? role}</span>
+            )}
           </div>
           <button
             type="button"

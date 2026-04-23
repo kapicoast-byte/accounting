@@ -9,6 +9,7 @@ import {
 import { INVENTORY_CATEGORIES } from '../utils/inventoryConstants';
 import { formatCurrency, formatNumber } from '../utils/format';
 import LoadingSpinner from '../components/LoadingSpinner';
+import RoleGuard from '../components/RoleGuard';
 import ItemFormModal from '../components/inventory/ItemFormModal';
 import StockAdjustmentModal from '../components/inventory/StockAdjustmentModal';
 import StockValuationCard from '../components/inventory/StockValuationCard';
@@ -90,13 +91,15 @@ export default function InventoryPage() {
             Manage raw materials, finished dishes, beverages and packaging.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={openCreate}
-          className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700"
-        >
-          + Add item
-        </button>
+        <RoleGuard permission="edit">
+          <button
+            type="button"
+            onClick={openCreate}
+            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700"
+          >
+            + Add item
+          </button>
+        </RoleGuard>
       </div>
 
       <StockValuationCard valuation={valuation} />
@@ -206,20 +209,24 @@ export default function InventoryPage() {
                           >
                             Adjust
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => openEdit(item)}
-                            className="rounded-md border border-gray-300 bg-white px-2 py-1 text-gray-700 hover:bg-gray-50"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(item)}
-                            className="rounded-md border border-red-200 bg-white px-2 py-1 text-red-700 hover:bg-red-50"
-                          >
-                            Delete
-                          </button>
+                          <RoleGuard permission="edit">
+                            <button
+                              type="button"
+                              onClick={() => openEdit(item)}
+                              className="rounded-md border border-gray-300 bg-white px-2 py-1 text-gray-700 hover:bg-gray-50"
+                            >
+                              Edit
+                            </button>
+                          </RoleGuard>
+                          <RoleGuard permission="delete">
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(item)}
+                              className="rounded-md border border-red-200 bg-white px-2 py-1 text-red-700 hover:bg-red-50"
+                            >
+                              Delete
+                            </button>
+                          </RoleGuard>
                         </div>
                       </td>
                     </tr>

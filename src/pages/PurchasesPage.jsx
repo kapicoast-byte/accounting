@@ -5,6 +5,7 @@ import { listPurchases, PURCHASE_STATUS } from '../services/purchaseService';
 import { startOfDay, endOfDay, toJsDate } from '../utils/dateUtils';
 import { formatCurrency } from '../utils/format';
 import LoadingSpinner from '../components/LoadingSpinner';
+import RoleGuard from '../components/RoleGuard';
 import PaymentStatusBadge from '../components/sales/PaymentStatusBadge';
 import PayablePaymentModal from '../components/purchases/PayablePaymentModal';
 
@@ -73,10 +74,12 @@ export default function PurchasesPage() {
           <h1 className="text-2xl font-bold text-gray-900">Purchases</h1>
           <p className="text-sm text-gray-500">All vendor bills for the active company.</p>
         </div>
-        <Link to="/purchases/new"
-          className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700">
-          + New purchase
-        </Link>
+        <RoleGuard permission="edit">
+          <Link to="/purchases/new"
+            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700">
+            + New purchase
+          </Link>
+        </RoleGuard>
       </div>
 
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">

@@ -8,9 +8,11 @@ import {
   where,
   orderBy,
   updateDoc,
+  setDoc,
   serverTimestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
+import { listMemberCompanyIds, ROLES } from './memberService';
 
 export const COMPANY_TYPE = {
   PARENT: 'parent',
@@ -24,6 +26,8 @@ export async function createCompany({
   type,
   parentCompanyId = null,
   ownerUid,
+  ownerEmail = '',
+  ownerDisplayName = '',
   address = '',
   GSTIN = '',
   phone = '',
@@ -50,6 +54,16 @@ export async function createCompany({
     createdAt: serverTimestamp(),
   });
 
+  // Creator is always the admin member of their company.
+  await setDoc(doc(db, 'companies', docRef.id, 'members', ownerUid), {
+    uid:         ownerUid,
+    email:       (ownerEmail || email).toLowerCase(),
+    displayName: ownerDisplayName,
+    role:        ROLES.ADMIN,
+    addedBy:     null,
+    addedAt:     serverTimestamp(),
+  });
+
   return { companyId: docRef.id };
 }
 
@@ -59,27 +73,63 @@ export async function getCompany(companyId) {
 }
 
 export async function listUserCompanies(uid) {
-  const q = query(
-    companiesCol,
-    where('ownerUid', '==', uid),
-    orderBy('createdAt', 'asc'),
+  // Fetch companies from both sources and merge.
+  const [rbacIds, ownerSnap] = await Promise.all([
+    listMemberCompanyIds(uid),
+    getDocs(query(companiesCol, where('ownerUid', '==', uid), orderBy('createdAt', 'asc'))),
+  ]);
+
+  const map = new Map();
+  ownerSnap.docs.forEach((d) => map.set(d.id, { companyId: d.id, ...d.data() }));
+
+  // Fetch any RBAC-only companies (member of but not owner)
+  await Promise.all(
+    rbacIds
+      .filter((id) => !map.has(id))
+      .map(async (id) => {
+        const snap = await getDoc(doc(db, 'companies', id));
+        if (snap.exists()) map.set(id, { companyId: snap.id, ...snap.data() });
+      }),
   );
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ companyId: d.id, ...d.data() }));
+
+  return [...map.values()].sort((a, b) => {
+    const ta = a.createdAt?.toDate?.()?.getTime() ?? 0;
+    const tb = b.createdAt?.toDate?.()?.getTime() ?? 0;
+    return ta - tb;
+  });
 }
 
-export async function listParentCompaniesForUser(uid) {
-  const q = query(
-    companiesCol,
-    where('ownerUid', '==', uid),
-    where('type', '==', COMPANY_TYPE.PARENT),
+// Returns parent companies where the given uid is an admin member.
+export async function listAdminParentCompaniesForUser(uid) {
+  const all = await listUserCompanies(uid);
+  const parents = all.filter((c) => c.type === COMPANY_TYPE.PARENT);
+
+  const withRoles = await Promise.all(
+    parents.map(async (c) => {
+      const memberSnap = await getDoc(doc(db, 'companies', c.companyId, 'members', uid));
+      const role = memberSnap.exists()
+        ? memberSnap.data().role
+        : c.ownerUid === uid
+        ? ROLES.ADMIN
+        : null;
+      return { ...c, role };
+    }),
   );
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ companyId: d.id, ...d.data() }));
+
+  return withRoles.filter((c) => c.role === ROLES.ADMIN);
 }
 
 export async function updateCompany(companyId, updates) {
   await updateDoc(doc(db, 'companies', companyId), updates);
+}
+
+export async function deleteCompany(companyId) {
+  // Soft-delete: mark as deleted. Hard deletes need a Cloud Function to
+  // cascade into subcollections, which can't be done client-side.
+  await updateDoc(doc(db, 'companies', companyId), {
+    deleted: true,
+    deletedAt: serverTimestamp(),
+  });
 }
 
 export async function setActiveCompanyForUser(uid, companyId) {
