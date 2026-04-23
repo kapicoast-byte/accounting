@@ -6,6 +6,8 @@ import SalesPurchasesChart from '../components/dashboard/SalesPurchasesChart';
 import LowStockCard from '../components/dashboard/LowStockCard';
 import TopSellingCard from '../components/dashboard/TopSellingCard';
 import CashBankCard from '../components/dashboard/CashBankCard';
+import AskYourBooksWidget from '../components/ai/AskYourBooksWidget';
+import ExpenseAnomalyAlert from '../components/ai/ExpenseAnomalyAlert';
 
 export default function DashboardPage() {
   const { activeCompany, activeCompanyId } = useApp();
@@ -76,6 +78,12 @@ export default function DashboardPage() {
         <LowStockCard data={data?.lowStock} loading={loading} />
         <TopSellingCard data={data?.topSelling} loading={loading} />
       </section>
+
+      {!loading && activeCompanyId && (
+        <ExpenseAnomalyAlert companyId={activeCompanyId} />
+      )}
+
+      <AskYourBooksWidget dashboardSnapshot={data} />
     </div>
   );
 }

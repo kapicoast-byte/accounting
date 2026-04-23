@@ -21,6 +21,7 @@ import LedgerPage from './pages/LedgerPage';
 import JournalPage from './pages/JournalPage';
 import TrialBalancePage from './pages/TrialBalancePage';
 import GSTPage from './pages/GSTPage';
+import ReportsPage from './pages/ReportsPage';
 
 export default function App() {
   return (
@@ -51,6 +52,7 @@ export default function App() {
                 <Route path="/journal" element={<JournalPage />} />
                 <Route path="/trial-balance" element={<TrialBalancePage />} />
                 <Route path="/gst" element={<GSTPage />} />
+                <Route path="/reports" element={<ReportsPage />} />
               </Route>
             </Route>
           </Route>
