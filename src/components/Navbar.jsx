@@ -26,6 +26,74 @@ const ACCOUNTS_LINKS = [
 
 const ACCOUNTS_PREFIXES = ACCOUNTS_LINKS.map((l) => l.to);
 
+const FNB_LINKS = [
+  { to: '/recipes',    label: 'Recipes'          },
+  { to: '/wastage',    label: 'Wastage Tracking'  },
+  { to: '/production', label: 'Production Log'    },
+];
+
+const FNB_PREFIXES = FNB_LINKS.map((l) => l.to);
+
+function FnbDropdown() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const location = useLocation();
+
+  const isActive = FNB_PREFIXES.some((p) => location.pathname.startsWith(p));
+
+  useEffect(() => {
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-sm transition ${
+          isActive
+            ? 'bg-blue-50 text-blue-700 font-medium'
+            : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+        }`}
+      >
+        F&amp;B Ops
+        <svg className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
+          viewBox="0 0 20 20" fill="currentColor">
+          <path fillRule="evenodd"
+            d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+            clipRule="evenodd" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full z-50 mt-1 w-48 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+          <p className="px-4 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+            F&amp;B Operations
+          </p>
+          {FNB_LINKS.map((link) => (
+            <NavLink
+              key={link.to}
+              to={link.to}
+              onClick={() => setOpen(false)}
+              className={({ isActive: a }) =>
+                `block px-4 py-2 text-sm transition ${
+                  a ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'
+                }`
+              }
+            >
+              {link.label}
+            </NavLink>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AccountsDropdown() {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -117,6 +185,7 @@ export default function Navbar() {
               </NavLink>
             ))}
             <AccountsDropdown />
+            <FnbDropdown />
           </nav>
         </div>
 
