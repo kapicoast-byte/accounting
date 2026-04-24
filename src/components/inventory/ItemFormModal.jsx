@@ -19,6 +19,7 @@ const EMPTY_FORM = {
   reorderLevel: '',
   costPrice: '',
   sellingPrice: '',
+  barcode: '',
   isActive: true,
 };
 
@@ -66,6 +67,7 @@ export default function ItemFormModal({ open, companyId, item, onClose, onSaved 
         reorderLevel: String(item.reorderLevel ?? 0),
         costPrice: String(item.costPrice ?? 0),
         sellingPrice: String(item.sellingPrice ?? 0),
+        barcode: item.barcode ?? '',
         isActive: item.isActive ?? true,
       });
     } else {
@@ -239,6 +241,18 @@ export default function ItemFormModal({ open, companyId, item, onClose, onSaved 
           error={errors.sellingPrice}
           disabled={submitting}
         />
+
+        <div className="sm:col-span-2">
+          <FormField
+            label="Barcode (optional)"
+            id="barcode"
+            name="barcode"
+            placeholder="Scan or enter barcode"
+            value={form.barcode}
+            onChange={handleChange}
+            disabled={submitting}
+          />
+        </div>
 
         {isEdit && (
           <label className="sm:col-span-2 mt-1 flex items-center gap-2 text-sm text-gray-700">

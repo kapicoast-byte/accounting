@@ -1,5 +1,6 @@
 import { useApp } from '../context/AppContext';
 import { useDashboard } from '../hooks/useDashboard';
+import { BUSINESS_TYPES } from '../services/companyService';
 import { formatCurrency } from '../utils/format';
 import StatCard from '../components/dashboard/StatCard';
 import SalesPurchasesChart from '../components/dashboard/SalesPurchasesChart';
@@ -17,9 +18,26 @@ export default function DashboardPage() {
     <div className="flex flex-col gap-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            {activeCompany?.companyName ?? 'Dashboard'}
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-gray-900">
+              {activeCompany?.companyName ?? 'Dashboard'}
+            </h1>
+            {activeCompany?.businessType && (() => {
+              const bt = BUSINESS_TYPES.find((b) => b.value === activeCompany.businessType);
+              const colors = {
+                'F&B':           'bg-orange-100 text-orange-700',
+                'Retail':        'bg-green-100 text-green-700',
+                'Manufacturing': 'bg-purple-100 text-purple-700',
+                'Services':      'bg-blue-100 text-blue-700',
+                'Other':         'bg-gray-100 text-gray-600',
+              };
+              return (
+                <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${colors[activeCompany.businessType] ?? colors['Other']}`}>
+                  {bt?.label ?? activeCompany.businessType}
+                </span>
+              );
+            })()}
+          </div>
           <p className="text-sm text-gray-500">
             Live overview for the active company
           </p>

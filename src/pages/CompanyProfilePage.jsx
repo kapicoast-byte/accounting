@@ -10,6 +10,7 @@ import {
   getCompany,
   listUserCompanies,
   COMPANY_TYPE,
+  BUSINESS_TYPES,
 } from '../services/companyService';
 import Modal from '../components/Modal';
 import FormField from '../components/FormField';
@@ -175,6 +176,7 @@ export default function CompanyProfilePage() {
       phone:              activeCompany.phone ?? '',
       email:              activeCompany.email ?? '',
       financialYearStart: activeCompany.financialYearStart ?? '04-01',
+      businessType:       activeCompany.businessType ?? '',
     });
     setLogoUrl(activeCompany.logoUrl ?? '');
   }, [activeCompany]);
@@ -393,6 +395,29 @@ export default function CompanyProfilePage() {
                 </p>
               )}
             </div>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label htmlFor="businessType" className="text-sm font-medium text-gray-700">Business type</label>
+            {isAdmin ? (
+              <select
+                id="businessType"
+                name="businessType"
+                value={form.businessType}
+                onChange={handleChange}
+                disabled={saving}
+                className="rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
+              >
+                <option value="">— Select type —</option>
+                {BUSINESS_TYPES.map((bt) => (
+                  <option key={bt.value} value={bt.value}>{bt.label}</option>
+                ))}
+              </select>
+            ) : (
+              <p className="text-sm text-gray-700 py-2">
+                {BUSINESS_TYPES.find((bt) => bt.value === form.businessType)?.label ?? '—'}
+              </p>
+            )}
           </div>
 
           {/* Save feedback */}

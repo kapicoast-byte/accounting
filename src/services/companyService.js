@@ -22,6 +22,14 @@ export const COMPANY_TYPE = {
   SUBSIDIARY: 'subsidiary',
 };
 
+export const BUSINESS_TYPES = [
+  { value: 'F&B',           label: 'Food & Beverage (F&B)'  },
+  { value: 'Retail',        label: 'Retail / Supermarket'   },
+  { value: 'Manufacturing', label: 'Manufacturing'           },
+  { value: 'Services',      label: 'Services'               },
+  { value: 'Other',         label: 'Other'                  },
+];
+
 const companiesCol = collection(db, 'companies');
 
 // ─── create ───────────────────────────────────────────────────────────────────
@@ -126,7 +134,7 @@ export async function listAdminParentCompaniesForUser(uid) {
 // ─── update profile ───────────────────────────────────────────────────────────
 
 export async function updateCompanyProfile(companyId, {
-  companyName, address, GSTIN, phone, email, financialYearStart,
+  companyName, address, GSTIN, phone, email, financialYearStart, businessType,
 }) {
   const updates = { updatedAt: serverTimestamp() };
   if (companyName        !== undefined) updates.companyName        = companyName.trim();
@@ -135,6 +143,7 @@ export async function updateCompanyProfile(companyId, {
   if (phone              !== undefined) updates.phone              = phone.trim();
   if (email              !== undefined) updates.email              = email.trim().toLowerCase();
   if (financialYearStart !== undefined) updates.financialYearStart = financialYearStart;
+  if (businessType       !== undefined) updates.businessType       = businessType;
   await updateDoc(doc(db, 'companies', companyId), updates);
 }
 

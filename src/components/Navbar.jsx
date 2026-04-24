@@ -4,7 +4,16 @@ import { useApp } from '../context/AppContext';
 import { logoutUser } from '../services/authService';
 import { useRole } from '../hooks/useRole';
 import { ROLE_LABELS } from '../services/memberService';
+import { BUSINESS_TYPES } from '../services/companyService';
 import CompanySwitcher from './CompanySwitcher';
+
+const BT_COLORS = {
+  'F&B':           'bg-orange-100 text-orange-700',
+  'Retail':        'bg-green-100 text-green-700',
+  'Manufacturing': 'bg-purple-100 text-purple-700',
+  'Services':      'bg-blue-100 text-blue-700',
+  'Other':         'bg-gray-100 text-gray-600',
+};
 
 const NAV_LINKS = [
   { to: '/dashboard', label: 'Dashboard' },
@@ -152,8 +161,9 @@ function AccountsDropdown() {
 }
 
 export default function Navbar() {
-  const { user } = useApp();
+  const { user, activeCompany } = useApp();
   const { role } = useRole();
+  const businessType = activeCompany?.businessType;
   const navigate = useNavigate();
 
   async function handleLogout() {
@@ -191,6 +201,13 @@ export default function Navbar() {
 
         <div className="flex items-center gap-4">
           <CompanySwitcher />
+
+          {/* Business type badge */}
+          {businessType && (
+            <span className={`hidden sm:inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${BT_COLORS[businessType] ?? BT_COLORS['Other']}`}>
+              {BUSINESS_TYPES.find((b) => b.value === businessType)?.label ?? businessType}
+            </span>
+          )}
 
           {/* Team members link — visible to admins and managers */}
           {(role === 'admin' || role === 'manager') && (

@@ -33,29 +33,31 @@ export async function getInventoryItem(companyId, itemId) {
 
 export async function createInventoryItem(companyId, payload) {
   const ref = await addDoc(inventoryCol(companyId), {
-    itemName: payload.itemName.trim(),
-    category: payload.category,
-    unit: payload.unit,
+    itemName:     payload.itemName.trim(),
+    category:     payload.category,
+    unit:         payload.unit,
     currentStock: Number(payload.currentStock) || 0,
     reorderLevel: Number(payload.reorderLevel) || 0,
-    costPrice: Number(payload.costPrice) || 0,
+    costPrice:    Number(payload.costPrice) || 0,
     sellingPrice: Number(payload.sellingPrice) || 0,
-    isActive: payload.isActive ?? true,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+    barcode:      payload.barcode?.trim() ?? '',
+    isActive:     payload.isActive ?? true,
+    createdAt:    serverTimestamp(),
+    updatedAt:    serverTimestamp(),
   });
   return { itemId: ref.id };
 }
 
 export async function updateInventoryItem(companyId, itemId, payload) {
   const updates = { updatedAt: serverTimestamp() };
-  if (payload.itemName !== undefined) updates.itemName = payload.itemName.trim();
-  if (payload.category !== undefined) updates.category = payload.category;
-  if (payload.unit !== undefined) updates.unit = payload.unit;
+  if (payload.itemName    !== undefined) updates.itemName    = payload.itemName.trim();
+  if (payload.category    !== undefined) updates.category    = payload.category;
+  if (payload.unit        !== undefined) updates.unit        = payload.unit;
   if (payload.reorderLevel !== undefined) updates.reorderLevel = Number(payload.reorderLevel) || 0;
-  if (payload.costPrice !== undefined) updates.costPrice = Number(payload.costPrice) || 0;
+  if (payload.costPrice   !== undefined) updates.costPrice   = Number(payload.costPrice) || 0;
   if (payload.sellingPrice !== undefined) updates.sellingPrice = Number(payload.sellingPrice) || 0;
-  if (payload.isActive !== undefined) updates.isActive = !!payload.isActive;
+  if (payload.barcode     !== undefined) updates.barcode     = payload.barcode?.trim() ?? '';
+  if (payload.isActive    !== undefined) updates.isActive    = !!payload.isActive;
   await updateDoc(inventoryDoc(companyId, itemId), updates);
 }
 

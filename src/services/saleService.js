@@ -65,7 +65,7 @@ function formatInvoiceNumber(year, count) {
 
 // ─── create sale (transaction) ───────────────────────────────────────────────
 
-export async function createSale(companyId, { customer, lineItems, discountType, discountValue, paymentMode, date, dueDate, notes }) {
+export async function createSale(companyId, { customer, lineItems, discountType, discountValue, paymentMode, date, dueDate, notes, tableNumber, orderType }) {
   const inventoryLines = lineItems.filter((l) => l.itemId && l.itemId !== 'custom');
   const totals = computeInvoiceTotals({ lineItems, discountType, discountValue });
   const isPaid = paymentMode !== 'Credit';
@@ -138,7 +138,9 @@ export async function createSale(companyId, { customer, lineItems, discountType,
       paidAmount,
       balanceDue,
       status,
-      notes:     notes ?? '',
+      notes:       notes ?? '',
+      tableNumber: tableNumber ?? null,
+      orderType:   orderType   ?? null,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
