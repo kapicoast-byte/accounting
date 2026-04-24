@@ -1,39 +1,77 @@
 import { useState, useRef, useEffect } from 'react';
 import { streamChat } from '../../services/aiService';
+import { useApp } from '../../context/AppContext';
+import { listSales } from '../../services/saleService';
+import { listPurchases } from '../../services/purchaseService';
+import { startOfMonth, endOfDay } from '../../utils/dateUtils';
 
-// Formats aggregated dashboard + extra data into a plain-text context block for Claude.
-function buildBusinessContext(snapshot) {
-  if (!snapshot) return 'No business data available yet.';
-  const { todaysSales, todaysPurchases, receivables, payables, lowStock, topSelling, cashBank, weeklyChart } = snapshot;
+function getIndianFY() {
+  const now = new Date();
+  const month = now.getMonth(); // April = 3
+  const year = now.getFullYear();
+  const fyStart = month >= 3 ? year : year - 1;
+  return `FY ${fyStart}-${String(fyStart + 1).slice(-2)}`;
+}
 
-  const topItems = (topSelling ?? [])
-    .slice(0, 3)
-    .map((i) => `${i.itemName} (${i.qty} units, ₹${i.amount?.toFixed(2)})`)
-    .join(', ');
+// Formats aggregated dashboard + extra data into a plain-text context block for Gemini.
+function buildBusinessContext(snapshot, activeCompany, monthlyData) {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-IN', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+  });
+  const companyName = activeCompany?.name ?? 'Your Business';
+  const businessType = activeCompany?.businessType ?? 'General';
 
-  const lowItems = (lowStock?.items ?? [])
-    .slice(0, 5)
-    .map((i) => `${i.name} (${i.quantity} left)`)
-    .join(', ');
+  const lines = [
+    `Business: ${companyName} (${businessType})`,
+    `Today: ${dateStr} | ${getIndianFY()}`,
+    '',
+  ];
 
-  const weekTotals = (weeklyChart ?? []).reduce(
-    (acc, d) => ({ sales: acc.sales + d.sales, purchases: acc.purchases + d.purchases }),
-    { sales: 0, purchases: 0 },
-  );
+  if (snapshot) {
+    const { todaysSales, todaysPurchases, receivables, payables, lowStock, topSelling, cashBank, weeklyChart } = snapshot;
 
-  return [
-    `Today's Sales: ₹${(todaysSales?.total ?? 0).toFixed(2)} (${todaysSales?.count ?? 0} invoices)`,
-    `Today's Purchases: ₹${(todaysPurchases?.total ?? 0).toFixed(2)} (${todaysPurchases?.count ?? 0} bills)`,
-    `Outstanding Receivables: ₹${(receivables?.total ?? 0).toFixed(2)} (${receivables?.count ?? 0} invoices)`,
-    `Outstanding Payables: ₹${(payables?.total ?? 0).toFixed(2)} (${payables?.count ?? 0} bills)`,
-    `Cash Balance: ₹${(cashBank?.cashTotal ?? 0).toFixed(2)}`,
-    `Bank Balance: ₹${(cashBank?.bankTotal ?? 0).toFixed(2)}`,
-    `Last 7 Days — Total Sales: ₹${weekTotals.sales.toFixed(2)}, Total Purchases: ₹${weekTotals.purchases.toFixed(2)}`,
-    topItems ? `Top Selling Items This Month: ${topItems}` : '',
-    lowItems ? `Low Stock Items: ${lowItems}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n');
+    lines.push(`Today's Sales: ₹${(todaysSales?.total ?? 0).toFixed(2)} (${todaysSales?.count ?? 0} invoices)`);
+    lines.push(`Today's Purchases: ₹${(todaysPurchases?.total ?? 0).toFixed(2)} (${todaysPurchases?.count ?? 0} bills)`);
+    lines.push(`Cash Balance: ₹${(cashBank?.cashTotal ?? 0).toFixed(2)} | Bank Balance: ₹${(cashBank?.bankTotal ?? 0).toFixed(2)}`);
+    lines.push(`Outstanding Receivables: ₹${(receivables?.total ?? 0).toFixed(2)} (${receivables?.count ?? 0} invoices)`);
+    lines.push(`Outstanding Payables: ₹${(payables?.total ?? 0).toFixed(2)} (${payables?.count ?? 0} bills)`);
+
+    if ((weeklyChart ?? []).length > 0) {
+      lines.push('');
+      lines.push('Last 7 Days:');
+      weeklyChart.forEach((d, idx) => {
+        const label = d.date ?? d.label ?? d.day ?? `Day ${idx + 1}`;
+        lines.push(`  ${label}: Sales ₹${(d.sales ?? 0).toFixed(2)}, Purchases ₹${(d.purchases ?? 0).toFixed(2)}`);
+      });
+    }
+
+    const topItems = (topSelling ?? [])
+      .slice(0, 5)
+      .map((i) => `${i.itemName} (${i.qty} units, ₹${i.amount?.toFixed(2)})`);
+    if (topItems.length > 0) {
+      lines.push('');
+      lines.push(`Top Selling Items: ${topItems.join(', ')}`);
+    }
+
+    const lowItems = (lowStock?.items ?? []).slice(0, 5).map((i) => `${i.name} (${i.quantity} left)`);
+    const lowCount = (lowStock?.items ?? []).length;
+    if (lowCount > 0) {
+      lines.push(`Low Stock Alerts (${lowCount} items): ${lowItems.join(', ')}${lowCount > 5 ? '…' : ''}`);
+    }
+  }
+
+  if (monthlyData) {
+    lines.push('');
+    lines.push(`Current Month Total Sales: ₹${monthlyData.totalSales.toFixed(2)}`);
+    lines.push(`Current Month Total Purchases: ₹${monthlyData.totalPurchases.toFixed(2)}`);
+    lines.push(`Current Month Net: ₹${(monthlyData.totalSales - monthlyData.totalPurchases).toFixed(2)}`);
+    if (monthlyData.top5Items.length > 0) {
+      lines.push(`Top 5 Items This Month: ${monthlyData.top5Items.join(', ')}`);
+    }
+  }
+
+  return lines.join('\n');
 }
 
 function Message({ msg }) {
@@ -57,10 +95,12 @@ function Message({ msg }) {
 }
 
 export default function AskYourBooksWidget({ dashboardSnapshot }) {
+  const { activeCompany, activeCompanyId } = useApp();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [monthlyData, setMonthlyData] = useState(null);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -82,6 +122,48 @@ export default function AskYourBooksWidget({ dashboardSnapshot }) {
     }
   }, [open]);
 
+  // Fetch current-month totals and top items each time widget is opened
+  useEffect(() => {
+    if (!open || !activeCompanyId) return;
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const from = startOfMonth();
+        const to = endOfDay();
+        const [sales, purchases] = await Promise.all([
+          listSales(activeCompanyId, { fromDate: from, toDate: to }),
+          listPurchases(activeCompanyId, { fromDate: from, toDate: to }),
+        ]);
+        if (cancelled) return;
+
+        const totalSales = sales.reduce((s, r) => s + (Number(r.grandTotal) || 0), 0);
+        const totalPurchases = purchases.reduce((s, r) => s + (Number(r.grandTotal) || 0), 0);
+
+        const itemTotals = {};
+        for (const sale of sales) {
+          for (const line of (sale.lineItems ?? [])) {
+            const name = line.itemName ?? 'Unknown';
+            if (!itemTotals[name]) itemTotals[name] = { qty: 0, amount: 0 };
+            itemTotals[name].qty += Number(line.quantity) || 0;
+            itemTotals[name].amount += Number(line.lineSubtotal) || 0;
+          }
+        }
+        const top5Items = Object.entries(itemTotals)
+          .sort((a, b) => b[1].amount - a[1].amount)
+          .slice(0, 5)
+          .map(([name, d]) => `${name} (${d.qty} units, ₹${d.amount.toFixed(2)})`);
+
+        setMonthlyData({ totalSales, totalPurchases, top5Items });
+      } catch (_) {
+        // context just won't have monthly data — not a blocking error
+      }
+    }
+
+    load();
+    return () => { cancelled = true; };
+  }, [open, activeCompanyId]);
+
   async function handleSend() {
     const text = input.trim();
     if (!text || busy) return;
@@ -100,7 +182,7 @@ export default function AskYourBooksWidget({ dashboardSnapshot }) {
     setMessages((prev) => [...prev, { role: 'assistant', content: '', streaming: true }]);
 
     try {
-      const context = buildBusinessContext(dashboardSnapshot);
+      const context = buildBusinessContext(dashboardSnapshot, activeCompany, monthlyData);
       await streamChat(
         historyForApi,
         context,
@@ -229,7 +311,7 @@ export default function AskYourBooksWidget({ dashboardSnapshot }) {
                   </svg>
                 </button>
               </div>
-              <p className="mt-1 text-center text-xs text-gray-400">Powered by Claude AI</p>
+              <p className="mt-1 text-center text-xs text-gray-400">Powered by Gemini AI</p>
             </div>
           </div>
         </div>
