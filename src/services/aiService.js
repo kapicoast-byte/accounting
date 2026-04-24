@@ -1,56 +1,59 @@
-import Anthropic from '@anthropic-ai/sdk';
+const GEMINI_API_URL =
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
-const client = new Anthropic({
-  apiKey: import.meta.env.VITE_ANTHROPIC_API_KEY,
-  dangerouslyAllowBrowser: true,
-});
-
-const MODEL = 'claude-sonnet-4-6';
-
-const SYSTEM_PROMPT = [
-  {
-    type: 'text',
-    text: `You are SmartBooks AI, a friendly financial assistant for an F&B (food & beverage) business accounting app.
+const SYSTEM_INSTRUCTION = `You are SmartBooks AI, a friendly financial assistant for an F&B (food & beverage) business accounting app.
 You help business owners understand their finances in plain, simple language — no jargon.
 Always be concise, specific to the numbers provided, and actionable.
 When amounts are mentioned, format them as Indian Rupees (₹).
-Never make up data that wasn't provided to you.`,
-    cache_control: { type: 'ephemeral' },
-  },
-];
+Never make up data that wasn't provided to you.`;
+
+function apiKey() {
+  return import.meta.env.VITE_GEMINI_API_KEY ?? '';
+}
+
+async function callGemini(contents, systemInstruction = SYSTEM_INSTRUCTION) {
+  const res = await fetch(`${GEMINI_API_URL}?key=${apiKey()}`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({
+      system_instruction: { parts: [{ text: systemInstruction }] },
+      contents,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error?.message ?? `Gemini API error ${res.status}`);
+  }
+
+  const data = await res.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+}
 
 // ─── Ask Your Books: streaming chat ──────────────────────────────────────────
+// messages: [{role, content}] conversation history (role: "user" | "assistant")
 // businessContext: plain-text summary of aggregated Firestore data
-// messages: [{role, content}] conversation history
 // onDelta: called with each text chunk as it streams in
 // onComplete: called with the final complete text
 export async function streamChat(messages, businessContext, onDelta, onComplete) {
-  const systemWithContext = [
-    ...SYSTEM_PROMPT,
-    {
-      type: 'text',
-      text: `Here is the current business data context:\n\n${businessContext}`,
-    },
-  ];
+  // Build Gemini contents array; Gemini uses "model" instead of "assistant"
+  const contents = messages.map((m) => ({
+    role:  m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }],
+  }));
 
-  const stream = await client.messages.stream({
-    model: MODEL,
-    max_tokens: 1024,
-    system: systemWithContext,
-    messages,
-  });
-
-  let fullText = '';
-  for await (const chunk of stream) {
-    if (
-      chunk.type === 'content_block_delta' &&
-      chunk.delta.type === 'text_delta'
-    ) {
-      fullText += chunk.delta.text;
-      onDelta(chunk.delta.text);
-    }
+  // Append context to the last user message
+  if (contents.length > 0 && contents[contents.length - 1].role === 'user') {
+    const contextNote = `\n\n[Business data context]\n${businessContext}`;
+    const last = contents[contents.length - 1];
+    contents[contents.length - 1] = {
+      ...last,
+      parts: [{ text: last.parts[0].text + contextNote }],
+    };
   }
 
+  const fullText = await callGemini(contents);
+  onDelta(fullText);
   onComplete(fullText);
   return fullText;
 }
@@ -64,16 +67,9 @@ export async function explainExpenseAnomalies(anomalies) {
       `- ${a.category}: this month ₹${a.thisMonth.toFixed(2)}, 3-month avg ₹${a.avgLast3.toFixed(2)} (+${a.pctIncrease.toFixed(0)}%)`,
   );
 
-  const userMessage = `My F&B business has these expense anomalies this month (categories where spending is 20%+ above the 3-month average):\n${lines.join('\n')}\n\nWrite a short, plain-English explanation (3-4 sentences) of what might be causing these anomalies and what action I should consider.`;
+  const prompt = `My F&B business has these expense anomalies this month (categories where spending is 20%+ above the 3-month average):\n${lines.join('\n')}\n\nWrite a short, plain-English explanation (3-4 sentences) of what might be causing these anomalies and what action I should consider.`;
 
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: 512,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: userMessage }],
-  });
-
-  return response.content[0]?.text ?? '';
+  return callGemini([{ role: 'user', parts: [{ text: prompt }] }]);
 }
 
 // ─── AI Monthly Summary ───────────────────────────────────────────────────────
@@ -97,7 +93,7 @@ export async function generateMonthlySummary(summaryData) {
     ?.map((e) => `  • ${e.category}: ₹${e.total.toFixed(2)}`)
     .join('\n');
 
-  const userMessage = `Generate a 5-line plain-English business summary for ${month} using this data:
+  const prompt = `Generate a 5-line plain-English business summary for ${month} using this data:
 - Total Sales: ₹${totalSales.toFixed(2)}
 - Total Purchases: ₹${totalPurchases.toFixed(2)}
 - Total Expenses: ₹${totalExpenses.toFixed(2)}
@@ -109,12 +105,5 @@ export async function generateMonthlySummary(summaryData) {
 
 Write exactly 5 lines. Cover: (1) sales performance, (2) top-selling item, (3) biggest expense or cost pressure, (4) profit/loss status, (5) one actionable recommendation.`;
 
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: 512,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: userMessage }],
-  });
-
-  return response.content[0]?.text ?? '';
+  return callGemini([{ role: 'user', parts: [{ text: prompt }] }]);
 }
