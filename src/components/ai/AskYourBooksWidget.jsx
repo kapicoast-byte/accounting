@@ -54,7 +54,7 @@ function buildBusinessContext(snapshot, activeCompany, monthlyData) {
       lines.push(`Top Selling Items: ${topItems.join(', ')}`);
     }
 
-    const lowItems = (lowStock?.items ?? []).slice(0, 5).map((i) => `${i.name} (${i.quantity} left)`);
+    const lowItems = (lowStock?.items ?? []).slice(0, 5).map((i) => `${i.itemName} (${i.currentStock} left)`);
     const lowCount = (lowStock?.items ?? []).length;
     if (lowCount > 0) {
       lines.push(`Low Stock Alerts (${lowCount} items): ${lowItems.join(', ')}${lowCount > 5 ? '…' : ''}`);

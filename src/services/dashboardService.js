@@ -40,12 +40,14 @@ async function fetchAll(companyId, name) {
 
 export async function getTodaysSalesTotal(companyId) {
   const docs = await fetchInRange(companyId, 'sales', 'date', startOfDay(), endOfDay());
-  return { total: sumField(docs, 'totalAmount'), count: docs.length };
+  console.log('[Dashboard] getTodaysSalesTotal — companyId:', companyId, '| docs returned:', docs.length, '| raw:', docs);
+  return { total: sumField(docs, 'grandTotal'), count: docs.length };
 }
 
 export async function getTodaysPurchasesTotal(companyId) {
   const docs = await fetchInRange(companyId, 'purchases', 'date', startOfDay(), endOfDay());
-  return { total: sumField(docs, 'totalAmount'), count: docs.length };
+  console.log('[Dashboard] getTodaysPurchasesTotal — companyId:', companyId, '| docs returned:', docs.length, '| raw:', docs);
+  return { total: sumField(docs, 'grandTotal'), count: docs.length };
 }
 
 export async function getOutstandingReceivables(companyId) {
@@ -64,9 +66,11 @@ export async function getOutstandingPayables(companyId) {
 
 export async function getLowStockItems(companyId, limit = 10) {
   const items = await fetchAll(companyId, 'inventory');
-  const low = items
-    .filter((i) => Number(i.quantity ?? 0) <= Number(i.reorderLevel ?? 0))
-    .sort((a, b) => Number(a.quantity ?? 0) - Number(b.quantity ?? 0));
+  const active = items.filter((i) => i.isActive !== false);
+  const low = active
+    .filter((i) => Number(i.currentStock ?? 0) <= Number(i.reorderLevel ?? 0) && Number(i.reorderLevel ?? 0) > 0)
+    .sort((a, b) => Number(a.currentStock ?? 0) - Number(b.currentStock ?? 0));
+  console.log('[Dashboard] getLowStockItems — companyId:', companyId, '| active items:', active.length, '| low stock:', low.length);
   return { items: low.slice(0, limit), totalCount: low.length };
 }
 
@@ -78,22 +82,23 @@ export async function getTopSellingItemsThisMonth(companyId, limit = 5) {
     startOfMonth(),
     endOfDay(),
   );
+  console.log('[Dashboard] getTopSellingItemsThisMonth — companyId:', companyId, '| sales this month:', sales.length);
 
   const totals = new Map();
   for (const sale of sales) {
-    const items = Array.isArray(sale.items) ? sale.items : [];
-    for (const line of items) {
+    const lines = Array.isArray(sale.lineItems) ? sale.lineItems : [];
+    for (const line of lines) {
       const key = line.itemId ?? line.itemName;
       if (!key) continue;
-      const qty = Number(line.qty ?? line.quantity ?? 0);
-      const amount = Number(line.amount ?? (line.qty ?? 0) * (line.price ?? 0));
+      const qty    = Number(line.quantity ?? 0);
+      const amount = Number(line.lineSubtotal ?? 0);
       const prev = totals.get(key) ?? {
-        itemId: line.itemId ?? null,
+        itemId:   line.itemId   ?? null,
         itemName: line.itemName ?? 'Unnamed item',
-        qty: 0,
-        amount: 0,
+        qty:      0,
+        amount:   0,
       };
-      prev.qty += qty;
+      prev.qty    += qty;
       prev.amount += amount;
       totals.set(key, prev);
     }
@@ -136,17 +141,19 @@ export async function getLast7DaysSalesVsPurchases(companyId) {
     buckets.set(dateKey(d), { date: dateKey(d), sales: 0, purchases: 0 });
   }
 
+  console.log('[Dashboard] getLast7DaysSalesVsPurchases — companyId:', companyId, '| sales:', sales.length, '| purchases:', purchases.length);
+
   for (const s of sales) {
     const d = toJsDate(s.date);
     if (!d) continue;
     const k = dateKey(d);
-    if (buckets.has(k)) buckets.get(k).sales += Number(s.totalAmount) || 0;
+    if (buckets.has(k)) buckets.get(k).sales += Number(s.grandTotal) || 0;
   }
   for (const p of purchases) {
     const d = toJsDate(p.date);
     if (!d) continue;
     const k = dateKey(d);
-    if (buckets.has(k)) buckets.get(k).purchases += Number(p.totalAmount) || 0;
+    if (buckets.has(k)) buckets.get(k).purchases += Number(p.grandTotal) || 0;
   }
 
   return [...buckets.values()];
