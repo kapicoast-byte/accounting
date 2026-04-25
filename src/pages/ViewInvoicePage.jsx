@@ -6,6 +6,7 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import PaymentStatusBadge from '../components/sales/PaymentStatusBadge';
 import PaymentModal from '../components/sales/PaymentModal';
 import InvoicePrintLayout from '../components/sales/InvoicePrintLayout';
+import { generateInvoicePDF } from '../utils/invoicePdf';
 
 export default function ViewInvoicePage() {
   const { saleId } = useParams();
@@ -15,6 +16,7 @@ export default function ViewInvoicePage() {
   const [sale, setSale] = useState(null);
   const [loading, setLoading] = useState(true);
   const [payOpen, setPayOpen] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
 
   const load = useCallback(async () => {
     if (!activeCompanyId || !saleId) return;
@@ -35,6 +37,16 @@ export default function ViewInvoicePage() {
     setPayOpen(false);
   }
 
+  function handleDownloadPDF() {
+    if (!sale || pdfBusy) return;
+    setPdfBusy(true);
+    try {
+      generateInvoicePDF(sale, activeCompany);
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
   if (loading) return <div className="flex items-center justify-center py-20"><LoadingSpinner /></div>;
   if (!sale)   return null;
 
@@ -53,7 +65,11 @@ export default function ViewInvoicePage() {
           )}
           <button type="button" onClick={() => window.print()}
             className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">
-            Print / Save PDF
+            Print
+          </button>
+          <button type="button" onClick={handleDownloadPDF} disabled={pdfBusy}
+            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+            {pdfBusy ? 'Generating…' : 'Download PDF'}
           </button>
         </div>
       </div>
