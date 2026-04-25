@@ -7,6 +7,7 @@ import PaymentStatusBadge from '../components/sales/PaymentStatusBadge';
 import PaymentModal from '../components/sales/PaymentModal';
 import InvoicePrintLayout from '../components/sales/InvoicePrintLayout';
 import { generateInvoicePDF } from '../utils/invoicePdf';
+import { printInvoice } from '../utils/invoiceHtml';
 
 export default function ViewInvoicePage() {
   const { saleId } = useParams();
@@ -63,7 +64,7 @@ export default function ViewInvoicePage() {
               Collect payment
             </button>
           )}
-          <button type="button" onClick={() => window.print()}
+          <button type="button" onClick={() => printInvoice(sale, activeCompany)}
             className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">
             Print
           </button>
