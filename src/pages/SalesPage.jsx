@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { listSales, SALE_STATUS } from '../services/saleService';
+import { BUSINESS_TYPES } from '../services/companyService';
 import { startOfDay, endOfDay } from '../utils/dateUtils';
 import { formatCurrency } from '../utils/format';
 import { toJsDate } from '../utils/dateUtils';
@@ -9,6 +10,25 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import RoleGuard from '../components/RoleGuard';
 import PaymentStatusBadge from '../components/sales/PaymentStatusBadge';
 import PaymentModal from '../components/sales/PaymentModal';
+
+const BT_COLORS = {
+  'F&B':           'bg-orange-50 text-orange-700 border-orange-200',
+  'Retail':        'bg-green-50 text-green-700 border-green-200',
+  'Manufacturing': 'bg-purple-50 text-purple-700 border-purple-200',
+  'Services':      'bg-blue-50 text-blue-700 border-blue-200',
+  'Mixed':         'bg-teal-50 text-teal-700 border-teal-200',
+};
+
+function BizTypeBadge({ businessType }) {
+  if (!businessType) return null;
+  const bt = BUSINESS_TYPES.find((b) => b.value === businessType);
+  if (!bt) return null;
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium ${BT_COLORS[businessType] ?? 'bg-gray-50 text-gray-600 border-gray-200'}`}>
+      {bt.icon} {bt.label}
+    </span>
+  );
+}
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All statuses' },
@@ -27,7 +47,7 @@ function fmtDate(ts) {
 }
 
 export default function SalesPage() {
-  const { activeCompanyId } = useApp();
+  const { activeCompanyId, businessType } = useApp();
 
   const [sales, setSales] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -81,7 +101,10 @@ export default function SalesPage() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Sales & Invoices</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-gray-900">Sales & Invoices</h1>
+            <BizTypeBadge businessType={businessType} />
+          </div>
           <p className="text-sm text-gray-500">All invoices for the active company.</p>
         </div>
         {/* Staff can create sales; all roles see this button */}

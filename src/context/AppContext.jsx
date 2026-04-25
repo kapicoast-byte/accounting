@@ -101,7 +101,8 @@ export function AppProvider({ children }) {
     [user],
   );
 
-  const activeCompany = companies.find((c) => c.companyId === activeCompanyId) ?? null;
+  const activeCompany  = companies.find((c) => c.companyId === activeCompanyId) ?? null;
+  const businessType   = activeCompany?.businessType ?? '';
 
   // Subsidiaries of the active company that are in the user's accessible company list.
   const subsidiaryIds = useMemo(
@@ -128,6 +129,7 @@ export function AppProvider({ children }) {
     companies,
     activeCompany,
     activeCompanyId,
+    businessType,
     userRole,
     authLoading,
     companiesLoading,
