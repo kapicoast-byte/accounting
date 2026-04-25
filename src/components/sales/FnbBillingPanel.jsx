@@ -15,21 +15,19 @@ function sortedCategories(map) {
 }
 
 // Build ingredient deductions for a menu item sold at qty `saleQty`
-function buildIngredientDeductions(menuItem, recipes) {
-  if (!menuItem.linkedRecipeId) return null;
-  const recipe = recipes.find((r) => r.recipeId === menuItem.linkedRecipeId);
-  if (!recipe?.ingredients?.length) return null;
-  return recipe.ingredients
-    .filter((ing) => ing.itemId)
+function buildIngredientDeductions(menuItem) {
+  if (!menuItem.ingredients?.length) return null;
+  return menuItem.ingredients
+    .filter((ing) => ing.inventoryItemId)
     .map((ing) => ({
-      itemId:   ing.itemId,
-      itemName: ing.itemName,
-      qty:      (Number(ing.qty) || 0),   // per-unit qty; multiplied by saleQty at line-item build time
+      itemId:   ing.inventoryItemId,
+      itemName: ing.inventoryItemName,
+      qty:      Number(ing.quantity) || 0,  // per-unit qty; multiplied by saleQty at line-item build time
       unit:     ing.unit ?? '',
     }));
 }
 
-export default function FnbBillingPanel({ menuItems, recipes, onSubmit, submitting, error }) {
+export default function FnbBillingPanel({ menuItems, onSubmit, submitting, error }) {
   // Build menu grouped by category, sorted by displayOrder within each category.
   // Only available items appear as active; unavailable items are shown greyed-out.
   const menu = useMemo(() => {
@@ -76,7 +74,7 @@ export default function FnbBillingPanel({ menuItems, recipes, onSubmit, submitti
   const lineItems = useMemo(
     () =>
       orderEntries.map((e) => {
-        const perUnitDeductions = buildIngredientDeductions(e.item, recipes);
+        const perUnitDeductions = buildIngredientDeductions(e.item);
         return {
           itemId:    'custom',
           itemName:  e.item.itemName,
@@ -90,7 +88,7 @@ export default function FnbBillingPanel({ menuItems, recipes, onSubmit, submitti
             : [],
         };
       }),
-    [order, recipes], // eslint-disable-line react-hooks/exhaustive-deps
+    [order], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const totals = useMemo(

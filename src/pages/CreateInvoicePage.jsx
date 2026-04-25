@@ -3,7 +3,6 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { listCustomers } from '../services/customerService';
 import { listInventoryItems } from '../services/inventoryService';
-import { listRecipes } from '../services/recipeService';
 import { listMenuItems } from '../services/menuItemService';
 import { BUSINESS_TYPES } from '../services/companyService';
 import { createSale, computeInvoiceTotals, PAYMENT_MODES } from '../services/saleService';
@@ -307,7 +306,7 @@ function StandardInvoiceForm({ inventoryItems, mode, businessType }) {
 
 // ─── F&B billing wrapper ──────────────────────────────────────────────────────
 
-function FnbInvoicePage({ menuItems, recipes, businessType }) {
+function FnbInvoicePage({ menuItems, businessType }) {
   const navigate = useNavigate();
   const { activeCompanyId } = useApp();
   const [submitting, setSubmitting] = useState(false);
@@ -334,7 +333,6 @@ function FnbInvoicePage({ menuItems, recipes, businessType }) {
       />
       <FnbBillingPanel
         menuItems={menuItems}
-        recipes={recipes}
         onSubmit={handleSubmit}
         submitting={submitting}
         error={serverError}
@@ -345,7 +343,7 @@ function FnbInvoicePage({ menuItems, recipes, businessType }) {
 
 // ─── Mixed mode: toggle between F&B POS and Retail invoice ───────────────────
 
-function MixedInvoicePage({ menuItems, recipes, inventoryItems }) {
+function MixedInvoicePage({ menuItems, inventoryItems }) {
   const [salesMode, setSalesMode] = useState('menu'); // 'menu' | 'inventory'
 
   return (
@@ -386,7 +384,7 @@ function MixedInvoicePage({ menuItems, recipes, inventoryItems }) {
       </div>
 
       {salesMode === 'menu' ? (
-        <MixedFnbPanel menuItems={menuItems} recipes={recipes} />
+        <MixedFnbPanel menuItems={menuItems} />
       ) : (
         <StandardInvoiceForm inventoryItems={inventoryItems} mode="retail" businessType="Mixed" />
       )}
@@ -394,7 +392,7 @@ function MixedInvoicePage({ menuItems, recipes, inventoryItems }) {
   );
 }
 
-function MixedFnbPanel({ menuItems, recipes }) {
+function MixedFnbPanel({ menuItems }) {
   const navigate = useNavigate();
   const { activeCompanyId } = useApp();
   const [submitting, setSubmitting] = useState(false);
@@ -415,7 +413,6 @@ function MixedFnbPanel({ menuItems, recipes }) {
   return (
     <FnbBillingPanel
       menuItems={menuItems}
-      recipes={recipes}
       onSubmit={handleSubmit}
       submitting={submitting}
       error={serverError}
@@ -428,7 +425,6 @@ function MixedFnbPanel({ menuItems, recipes }) {
 export default function CreateInvoicePage() {
   const { activeCompanyId, businessType } = useApp();
   const [inventoryItems, setInventoryItems] = useState([]);
-  const [recipes, setRecipes]               = useState([]);
   const [menuItems, setMenuItems]           = useState([]);
   const [loading, setLoading]               = useState(true);
 
@@ -441,10 +437,7 @@ export default function CreateInvoicePage() {
     try {
       const tasks = [];
       if (isFnb) {
-        tasks.push(
-          listMenuItems(activeCompanyId).then(setMenuItems),
-          listRecipes(activeCompanyId).then(setRecipes),
-        );
+        tasks.push(listMenuItems(activeCompanyId).then(setMenuItems));
       }
       if (needsInv) {
         tasks.push(
@@ -464,10 +457,10 @@ export default function CreateInvoicePage() {
   if (loading) return <div className="flex items-center justify-center py-20"><LoadingSpinner /></div>;
 
   if (businessType === 'F&B') {
-    return <FnbInvoicePage menuItems={menuItems} recipes={recipes} businessType={businessType} />;
+    return <FnbInvoicePage menuItems={menuItems} businessType={businessType} />;
   }
   if (businessType === 'Mixed') {
-    return <MixedInvoicePage menuItems={menuItems} recipes={recipes} inventoryItems={inventoryItems} />;
+    return <MixedInvoicePage menuItems={menuItems} inventoryItems={inventoryItems} />;
   }
   if (businessType === 'Manufacturing') {
     return <StandardInvoiceForm inventoryItems={inventoryItems} mode="manufacturing" businessType={businessType} />;
