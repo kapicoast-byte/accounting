@@ -4,6 +4,8 @@ import { auth } from '../services/firebase';
 import { getUserProfile } from '../services/authService';
 import { listUserCompanies, setActiveCompanyForUser, COMPANY_TYPE } from '../services/companyService';
 import { getMemberRole } from '../services/memberService';
+import { getCountryConfig, getTaxSystemConfig } from '../utils/countryConfig';
+import { setCurrencyConfig } from '../utils/format';
 
 const AppContext = createContext(null);
 
@@ -39,7 +41,6 @@ export function AppProvider({ children }) {
     }
   }, []);
 
-  // Re-fetch role whenever user or active company changes.
   useEffect(() => {
     if (!user || !activeCompanyId) {
       setUserRole(null);
@@ -52,7 +53,6 @@ export function AppProvider({ children }) {
       .finally(() => setRoleLoading(false));
   }, [user, activeCompanyId]);
 
-  // Reset consolidated view whenever the active company changes.
   useEffect(() => {
     setIsConsolidated(false);
   }, [activeCompanyId]);
@@ -104,16 +104,13 @@ export function AppProvider({ children }) {
   const activeCompany  = companies.find((c) => c.companyId === activeCompanyId) ?? null;
   const businessType   = activeCompany?.businessType ?? '';
 
-  // Subsidiaries of the active company that are in the user's accessible company list.
   const subsidiaryIds = useMemo(
     () => companies.filter((c) => c.parentCompanyId === activeCompanyId).map((c) => c.companyId),
     [companies, activeCompanyId],
   );
 
-  // Only true when the active company is a parent AND the user can see at least one subsidiary.
   const isParentCompany = activeCompany?.type === COMPANY_TYPE.PARENT && subsidiaryIds.length > 0;
 
-  // All company IDs in scope for the current view mode.
   const consolidatedIds = useMemo(
     () => (isConsolidated && isParentCompany ? [activeCompanyId, ...subsidiaryIds] : [activeCompanyId]),
     [isConsolidated, isParentCompany, activeCompanyId, subsidiaryIds],
@@ -122,6 +119,36 @@ export function AppProvider({ children }) {
   function toggleConsolidated() {
     if (isParentCompany) setIsConsolidated((v) => !v);
   }
+
+  // ── Tax + currency config derived from active company ─────────────────────
+  const taxConfig = useMemo(() => {
+    const cc         = getCountryConfig(activeCompany?.country);
+    const taxSysKey  = activeCompany?.taxSystem ?? cc?.taxSystem ?? 'GST_IN';
+    const ts         = getTaxSystemConfig(taxSysKey);
+    const customRates = (activeCompany?.customTaxRates ?? [])
+      .map((r) => Number(r.rate))
+      .filter((n) => Number.isFinite(n) && n >= 0);
+
+    const taxRates = taxSysKey === 'CUSTOM'
+      ? (customRates.length > 0 ? customRates : [0])
+      : (ts.rates.length > 0 ? ts.rates : [0]);
+
+    return {
+      taxSystem:      taxSysKey,
+      taxLabel:       ts.label,
+      taxRates,
+      taxReportTitle: ts.reportTitle,
+      tabA:           ts.tabA,
+      tabB:           ts.tabB,
+      splitMode:      ts.splitMode,
+      currencyCode:   activeCompany?.currencyCode ?? cc?.currency ?? 'INR',
+      currencyLocale: cc?.locale ?? 'en-IN',
+    };
+  }, [activeCompany]);
+
+  // Synchronously update the module-level currency store so all formatCurrency()
+  // calls throughout the app use the correct currency for the active company.
+  setCurrencyConfig(taxConfig.currencyCode, taxConfig.currencyLocale);
 
   const value = {
     user,
@@ -142,6 +169,15 @@ export function AppProvider({ children }) {
     subsidiaryIds,
     consolidatedIds,
     toggleConsolidated,
+    // Tax & currency
+    taxSystem:      taxConfig.taxSystem,
+    taxLabel:       taxConfig.taxLabel,
+    taxRates:       taxConfig.taxRates,
+    taxReportTitle: taxConfig.taxReportTitle,
+    tabA:           taxConfig.tabA,
+    tabB:           taxConfig.tabB,
+    splitMode:      taxConfig.splitMode,
+    currencyCode:   taxConfig.currencyCode,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

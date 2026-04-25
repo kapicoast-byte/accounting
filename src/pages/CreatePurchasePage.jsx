@@ -18,7 +18,7 @@ function futureStr(days = 30) {
 
 export default function CreatePurchasePage() {
   const navigate = useNavigate();
-  const { activeCompanyId } = useApp();
+  const { activeCompanyId, taxLabel } = useApp();
 
   const [vendors, setVendors] = useState([]);
   const [inventoryItems, setInventoryItems] = useState([]);
@@ -189,7 +189,7 @@ export default function CreatePurchasePage() {
               <label className="text-sm text-gray-600">Discount</label>
               <select value={discountType} onChange={(e) => setDiscountType(e.target.value)}
                 className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="flat">Flat (₹)</option>
+                <option value="flat">Flat (fixed)</option>
                 <option value="percent">Percent (%)</option>
               </select>
               <input type="number" min="0" step="0.01" value={discountValue}
@@ -203,7 +203,7 @@ export default function CreatePurchasePage() {
                 <dd className="font-medium">{formatCurrency(totals.subtotal)}</dd>
               </div>
               <div className="flex justify-between border-b border-gray-100 py-1">
-                <dt className="text-gray-500">GST input credit</dt>
+                <dt className="text-gray-500">{taxLabel ?? 'Tax'} input credit</dt>
                 <dd className="text-green-700">{formatCurrency(totals.totalGST)}</dd>
               </div>
               {totals.discountAmount > 0 && (

@@ -12,18 +12,16 @@ const BT_COLORS = {
   'Retail':        'bg-green-100 text-green-700',
   'Manufacturing': 'bg-purple-100 text-purple-700',
   'Services':      'bg-blue-100 text-blue-700',
-  'Mixed':         'bg-teal-100 text-teal-700',
   'Other':         'bg-gray-100 text-gray-600',
 };
 
-const NAV_LINKS = [
+const STATIC_NAV_LINKS = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/inventory',  label: 'Inventory'  },
   { to: '/sales',      label: 'Sales'      },
   { to: '/purchases',  label: 'Purchases'  },
   { to: '/expenses',   label: 'Expenses'   },
   { to: '/payables',   label: 'Payables'   },
-  { to: '/gst',        label: 'GST'        },
   { to: '/reports',    label: 'Reports'    },
 ];
 
@@ -38,12 +36,12 @@ const ACCOUNTS_PREFIXES = ACCOUNTS_LINKS.map((l) => l.to);
 
 const FNB_LINKS = [
   { to: '/fnb/menu-master', label: 'Menu Master'      },
-  { to: '/recipes',         label: 'Recipes'          },
+  { to: '/recipes',         label: 'Recipes'           },
   { to: '/wastage',         label: 'Wastage Tracking'  },
   { to: '/production',      label: 'Production Log'    },
 ];
 
-const FNB_PREFIXES = ['/fnb', '/recipes', '/wastage', '/production'];
+const FNB_PREFIXES = FNB_LINKS.map((l) => l.to);
 
 function FnbDropdown() {
   const [open, setOpen] = useState(false);
@@ -163,7 +161,8 @@ function AccountsDropdown() {
 }
 
 export default function Navbar() {
-  const { user, activeCompany, isConsolidated, isParentCompany, toggleConsolidated } = useApp();
+  const { user, activeCompany, isConsolidated, isParentCompany, toggleConsolidated, taxLabel } = useApp();
+  const NAV_LINKS = [...STATIC_NAV_LINKS, { to: '/gst', label: taxLabel ? `${taxLabel} Report` : 'Tax Report' }];
   const { role } = useRole();
   const businessType = activeCompany?.businessType;
   const navigate = useNavigate();

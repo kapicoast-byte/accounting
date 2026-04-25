@@ -76,10 +76,10 @@ export default function App() {
                 <Route path="/reports/cash-flow" element={<CashFlowPage />} />
                 <Route path="/reports/sales" element={<SalesReportPage />} />
                 <Route path="/reports/inventory" element={<InventoryReportPage />} />
+                <Route path="/fnb/menu-master" element={<MenuMasterPage />} />
                 <Route path="/recipes" element={<RecipesPage />} />
                 <Route path="/wastage" element={<WastagePage />} />
                 <Route path="/production" element={<ProductionPage />} />
-                <Route path="/fnb/menu-master" element={<MenuMasterPage />} />
               </Route>
             </Route>
           </Route>

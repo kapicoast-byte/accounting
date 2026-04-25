@@ -2,9 +2,10 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { toJsDate } from './dateUtils';
 
-// Standard PDF fonts don't include ₹; use Rs. prefix throughout
-function rs(n) {
-  return `Rs.${(Number(n) || 0).toFixed(2)}`;
+// Standard PDF fonts may not include currency glyphs; use ISO currency code prefix
+function makeFmt(currencyCode) {
+  const code = currencyCode ?? 'Rs';
+  return (n) => `${code} ${(Number(n) || 0).toFixed(2)}`;
 }
 
 function fmt(ts) {
@@ -32,6 +33,7 @@ export function generateInvoicePDF(sale, company) {
   console.log('[InvoicePDF] Generating — sale:', JSON.stringify(sale, null, 2));
   console.log('[InvoicePDF] Company:', JSON.stringify(company, null, 2));
 
+  const rs = makeFmt(company?.currencyCode);
   const doc  = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const W    = 210;
   const L    = 14;   // left margin

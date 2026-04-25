@@ -1,4 +1,5 @@
 import { toJsDate } from './dateUtils';
+import { formatCurrency } from './format';
 
 function fmt(ts) {
   const d = toJsDate(ts);
@@ -6,7 +7,7 @@ function fmt(ts) {
 }
 
 function rs(n) {
-  return `&#8377;${(Number(n) || 0).toFixed(2)}`;
+  return esc(formatCurrency(n));
 }
 
 function esc(str) {

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { GST_RATES } from '../../services/saleService';
+import { useApp } from '../../context/AppContext';
 import { formatCurrency } from '../../utils/format';
 
 const CUSTOM_ID = 'custom';
@@ -75,6 +75,8 @@ function RetailSearchBar({ inventoryItems, onAdd }) {
 // ── Main component ─────────────────────────────────────────────────────────
 
 export default function LineItemEditor({ items, inventoryItems = [], onChange, mode = 'standard' }) {
+  const { taxRates, taxLabel } = useApp();
+
   function update(id, patch) {
     onChange(items.map((l) => (l._id === id ? { ...l, ...patch } : l)));
   }
@@ -206,11 +208,11 @@ export default function LineItemEditor({ items, inventoryItems = [], onChange, m
                   </>
                 )}
                 <div>
-                  <p className="text-xs text-gray-500 mb-0.5">GST %</p>
+                  <p className="text-xs text-gray-500 mb-0.5">{taxLabel} %</p>
                   <select value={line.gstRate}
                     onChange={(e) => update(line._id, { gstRate: Number(e.target.value) })}
                     className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm">
-                    {GST_RATES.map((r) => <option key={r} value={r}>{r}%</option>)}
+                    {taxRates.map((r) => <option key={r} value={r}>{r}%</option>)}
                   </select>
                 </div>
                 <div className="flex flex-col justify-end">
@@ -335,9 +337,9 @@ export default function LineItemEditor({ items, inventoryItems = [], onChange, m
               <th className="px-3 py-2">Unit</th>
               <th className="px-3 py-2 w-20">Qty</th>
               <th className="px-3 py-2 w-28">Unit price</th>
-              <th className="px-3 py-2 w-24">GST %</th>
+              <th className="px-3 py-2 w-24">{taxLabel} %</th>
               <th className="px-3 py-2 w-28 text-right">Subtotal</th>
-              <th className="px-3 py-2 w-24 text-right">GST</th>
+              <th className="px-3 py-2 w-24 text-right">{taxLabel}</th>
               <th className="px-3 py-2 w-28 text-right">Total</th>
               <th className="px-3 py-2 w-8"></th>
             </tr>
@@ -405,7 +407,7 @@ export default function LineItemEditor({ items, inventoryItems = [], onChange, m
                     <select value={line.gstRate}
                       onChange={(e) => update(line._id, { gstRate: Number(e.target.value) })}
                       className="w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-blue-500">
-                      {GST_RATES.map((r) => <option key={r} value={r}>{r}%</option>)}
+                      {taxRates.map((r) => <option key={r} value={r}>{r}%</option>)}
                     </select>
                   </td>
                   <td className="px-3 py-2 text-right text-xs text-gray-700">{formatCurrency(sub)}</td>

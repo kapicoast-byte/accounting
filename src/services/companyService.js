@@ -160,6 +160,7 @@ export async function listAdminParentCompaniesForUser(uid) {
 
 export async function updateCompanyProfile(companyId, {
   companyName, address, GSTIN, phone, email, financialYearStart, businessType,
+  country, state, taxSystem, currencyCode, customTaxRates,
 }) {
   const updates = { updatedAt: serverTimestamp() };
   if (companyName        !== undefined) updates.companyName        = companyName.trim();
@@ -169,6 +170,11 @@ export async function updateCompanyProfile(companyId, {
   if (email              !== undefined) updates.email              = email.trim().toLowerCase();
   if (financialYearStart !== undefined) updates.financialYearStart = financialYearStart;
   if (businessType       !== undefined) updates.businessType       = businessType;
+  if (country            !== undefined) updates.country            = country;
+  if (state              !== undefined) updates.state              = state.trim();
+  if (taxSystem          !== undefined) updates.taxSystem          = taxSystem;
+  if (currencyCode       !== undefined) updates.currencyCode       = currencyCode.trim().toUpperCase();
+  if (customTaxRates     !== undefined) updates.customTaxRates     = customTaxRates;
   await updateDoc(doc(db, 'companies', companyId), updates);
 }
 

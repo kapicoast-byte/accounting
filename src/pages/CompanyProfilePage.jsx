@@ -12,6 +12,7 @@ import {
   COMPANY_TYPE,
   BUSINESS_TYPES,
 } from '../services/companyService';
+import { COUNTRIES, TAX_SYSTEMS, getCountryConfig } from '../utils/countryConfig';
 import Modal from '../components/Modal';
 import FormField from '../components/FormField';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -169,6 +170,7 @@ export default function CompanyProfilePage() {
   // Populate form from active company
   useEffect(() => {
     if (!activeCompany) return;
+    const cc = getCountryConfig(activeCompany.country ?? null);
     setForm({
       companyName:        activeCompany.companyName ?? '',
       address:            activeCompany.address ?? '',
@@ -177,6 +179,11 @@ export default function CompanyProfilePage() {
       email:              activeCompany.email ?? '',
       financialYearStart: activeCompany.financialYearStart ?? '04-01',
       businessType:       activeCompany.businessType ?? '',
+      country:            activeCompany.country ?? 'IN',
+      state:              activeCompany.state ?? '',
+      taxSystem:          activeCompany.taxSystem ?? cc?.taxSystem ?? 'GST_IN',
+      currencyCode:       activeCompany.currencyCode ?? cc?.currency ?? 'INR',
+      customTaxRates:     activeCompany.customTaxRates ?? [],
     });
     setLogoUrl(activeCompany.logoUrl ?? '');
   }, [activeCompany]);
@@ -193,6 +200,44 @@ export default function CompanyProfilePage() {
     setForm((prev) => ({ ...prev, [name]: value }));
     setSaveError('');
     setSaveSuccess(false);
+  }
+
+  function handleCountryChange(e) {
+    const code = e.target.value;
+    const cc = getCountryConfig(code);
+    setForm((prev) => ({
+      ...prev,
+      country:      code,
+      taxSystem:    cc?.taxSystem ?? 'CUSTOM',
+      currencyCode: cc?.currency  ?? prev.currencyCode,
+    }));
+    setSaveError('');
+    setSaveSuccess(false);
+  }
+
+  function handleTaxSystemChange(e) {
+    setForm((prev) => ({ ...prev, taxSystem: e.target.value }));
+    setSaveError('');
+    setSaveSuccess(false);
+  }
+
+  function addCustomRate() {
+    setForm((prev) => ({ ...prev, customTaxRates: [...prev.customTaxRates, { rate: '' }] }));
+  }
+
+  function updateCustomRate(idx, value) {
+    setForm((prev) => {
+      const next = [...prev.customTaxRates];
+      next[idx] = { rate: value };
+      return { ...prev, customTaxRates: next };
+    });
+  }
+
+  function removeCustomRate(idx) {
+    setForm((prev) => ({
+      ...prev,
+      customTaxRates: prev.customTaxRates.filter((_, i) => i !== idx),
+    }));
   }
 
   async function handleSave(e) {
@@ -445,6 +490,120 @@ export default function CompanyProfilePage() {
               })()
             )}
           </div>
+
+          {/* Country & Region */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-1">
+              <label htmlFor="country" className="text-sm font-medium text-gray-700">Country</label>
+              {isAdmin ? (
+                <select
+                  id="country"
+                  value={form.country}
+                  onChange={handleCountryChange}
+                  disabled={saving}
+                  className="rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
+                >
+                  {COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>{c.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-sm text-gray-700 py-2">
+                  {COUNTRIES.find((c) => c.code === form.country)?.name ?? form.country}
+                </p>
+              )}
+            </div>
+
+            <FormField
+              label="State / Province"
+              id="state"
+              name="state"
+              value={form.state}
+              onChange={handleChange}
+              disabled={!isAdmin || saving}
+              placeholder="e.g. Maharashtra"
+            />
+          </div>
+
+          {/* Tax System & Currency */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-1">
+              <label htmlFor="taxSystem" className="text-sm font-medium text-gray-700">Tax system</label>
+              {isAdmin ? (
+                <select
+                  id="taxSystem"
+                  value={form.taxSystem}
+                  onChange={handleTaxSystemChange}
+                  disabled={saving}
+                  className="rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
+                >
+                  {Object.entries(TAX_SYSTEMS).map(([key, ts]) => (
+                    <option key={key} value={key}>{ts.label} — {key.replace('_', ' ')}</option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-sm text-gray-700 py-2">
+                  {TAX_SYSTEMS[form.taxSystem]?.label ?? form.taxSystem}
+                </p>
+              )}
+              <p className="text-xs text-gray-400">Auto-set from country. Override if needed.</p>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label htmlFor="currencyCode" className="text-sm font-medium text-gray-700">Currency code</label>
+              {isAdmin ? (
+                <input
+                  id="currencyCode"
+                  name="currencyCode"
+                  value={form.currencyCode}
+                  onChange={handleChange}
+                  disabled={saving}
+                  maxLength={3}
+                  placeholder="e.g. USD"
+                  className="rounded-md border border-gray-300 px-3 py-2 text-sm uppercase outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
+                />
+              ) : (
+                <p className="text-sm text-gray-700 py-2">{form.currencyCode}</p>
+              )}
+              <p className="text-xs text-gray-400">ISO 4217 code, e.g. INR, USD, GBP</p>
+            </div>
+          </div>
+
+          {/* Custom tax rates — shown only when taxSystem is CUSTOM */}
+          {form.taxSystem === 'CUSTOM' && (
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-gray-700">Custom tax rates (%)</label>
+              <div className="flex flex-wrap gap-2">
+                {form.customTaxRates.map((r, i) => (
+                  <div key={i} className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      value={r.rate}
+                      onChange={(e) => updateCustomRate(i, e.target.value)}
+                      disabled={!isAdmin || saving}
+                      placeholder="0"
+                      className="w-20 rounded-md border border-gray-300 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                    />
+                    {isAdmin && (
+                      <button type="button" onClick={() => removeCustomRate(i)}
+                        className="text-gray-400 hover:text-red-500 transition text-lg leading-none"
+                        title="Remove rate">×</button>
+                    )}
+                  </div>
+                ))}
+                {isAdmin && (
+                  <button type="button" onClick={addCustomRate}
+                    className="rounded-md border border-dashed border-gray-300 px-3 py-1.5 text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 transition">
+                    + Add rate
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-gray-400">Enter percentage values, e.g. 0, 7, 13 for 0%, 7%, 13%</p>
+            </div>
+          )}
 
           {/* Save feedback */}
           {saveError   && <p className="text-sm text-red-600">{saveError}</p>}

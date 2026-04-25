@@ -1,4 +1,4 @@
-import { GST_RATES } from '../../services/saleService';
+import { useApp } from '../../context/AppContext';
 import { formatCurrency } from '../../utils/format';
 
 const CUSTOM_ID = 'custom';
@@ -9,6 +9,8 @@ export function newPurchaseLineItem() {
 }
 
 export default function PurchaseLineItemEditor({ items, inventoryItems, onChange }) {
+  const { taxRates, taxLabel } = useApp();
+
   function update(id, patch) {
     onChange(items.map((l) => (l._id === id ? { ...l, ...patch } : l)));
   }
@@ -44,9 +46,9 @@ export default function PurchaseLineItemEditor({ items, inventoryItems, onChange
             <th className="px-3 py-2">Unit</th>
             <th className="px-3 py-2 w-20">Qty</th>
             <th className="px-3 py-2 w-28">Cost</th>
-            <th className="px-3 py-2 w-24">GST %</th>
+            <th className="px-3 py-2 w-24">{taxLabel} %</th>
             <th className="px-3 py-2 w-28 text-right">Subtotal</th>
-            <th className="px-3 py-2 w-24 text-right">GST in</th>
+            <th className="px-3 py-2 w-24 text-right">{taxLabel} in</th>
             <th className="px-3 py-2 w-28 text-right">Total</th>
             <th className="px-3 py-2 w-8"></th>
           </tr>
@@ -103,7 +105,7 @@ export default function PurchaseLineItemEditor({ items, inventoryItems, onChange
                   <select value={line.gstRate}
                     onChange={(e) => update(line._id, { gstRate: Number(e.target.value) })}
                     className="w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-blue-500">
-                    {GST_RATES.map((r) => <option key={r} value={r}>{r}%</option>)}
+                    {taxRates.map((r) => <option key={r} value={r}>{r}%</option>)}
                   </select>
                 </td>
                 <td className="px-3 py-2 text-right text-xs text-gray-700">{formatCurrency(sub)}</td>

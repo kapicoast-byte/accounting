@@ -1,42 +1,26 @@
 import { useMemo, useState } from 'react';
+import { useApp } from '../../context/AppContext';
 import { computeInvoiceTotals, PAYMENT_MODES } from '../../services/saleService';
-import { MENU_CATEGORIES } from '../../services/menuItemService';
 import { formatCurrency } from '../../utils/format';
 
 const ORDER_TYPES = ['Dine In', 'Takeaway', 'Delivery'];
 
-// Category order for tabs — follows MENU_CATEGORIES order
+const CATEGORY_ORDER = ['Food', 'Beverage', 'Beverages', 'Dessert', 'Desserts', 'Snack', 'Snacks', 'Extras', 'Specials', 'Other'];
+
 function sortedCategories(map) {
   return Object.keys(map).sort((a, b) => {
-    const ai = MENU_CATEGORIES.findIndex((c) => c.toLowerCase() === a.toLowerCase());
-    const bi = MENU_CATEGORIES.findIndex((c) => c.toLowerCase() === b.toLowerCase());
+    const ai = CATEGORY_ORDER.findIndex((c) => c.toLowerCase() === a.toLowerCase());
+    const bi = CATEGORY_ORDER.findIndex((c) => c.toLowerCase() === b.toLowerCase());
     return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
   });
 }
 
-// Build ingredient deductions for a menu item sold at qty `saleQty`
-function buildIngredientDeductions(menuItem, recipes) {
-  if (!menuItem.linkedRecipeId) return null;
-  const recipe = recipes.find((r) => r.recipeId === menuItem.linkedRecipeId);
-  if (!recipe?.ingredients?.length) return null;
-  return recipe.ingredients
-    .filter((ing) => ing.itemId)
-    .map((ing) => ({
-      itemId:   ing.itemId,
-      itemName: ing.itemName,
-      qty:      (Number(ing.qty) || 0),   // per-unit qty; multiplied by saleQty at line-item build time
-      unit:     ing.unit ?? '',
-    }));
-}
+export default function FnbBillingPanel({ menuItems, onSubmit, submitting, error }) {
+  const { taxRates } = useApp();
+  const defaultTaxRate = taxRates.find((r) => r > 0) ?? taxRates[0] ?? 0;
 
-export default function FnbBillingPanel({ menuItems, recipes, onSubmit, submitting, error }) {
-  // Build menu grouped by category, sorted by displayOrder within each category.
-  // Only available items appear as active; unavailable items are shown greyed-out.
   const menu = useMemo(() => {
-    const sorted = [...menuItems].sort(
-      (a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0),
-    );
-    return sorted.reduce((acc, item) => {
+    return menuItems.reduce((acc, item) => {
       const cat = item.category ?? 'Other';
       if (!acc[cat]) acc[cat] = [];
       acc[cat].push(item);
@@ -46,19 +30,19 @@ export default function FnbBillingPanel({ menuItems, recipes, onSubmit, submitti
 
   const categories = sortedCategories(menu);
 
-  const [activeCategory, setActiveCategory] = useState(() => categories[0] ?? '');
-  const [order, setOrder]                   = useState({}); // menuItemId → { item, qty }
-  const [tableNumber, setTableNumber]       = useState('');
-  const [orderType, setOrderType]           = useState(ORDER_TYPES[0]);
-  const [paymentMode, setPaymentMode]       = useState('Cash');
-  const [discountValue, setDiscountValue]   = useState('0');
-  const [notes, setNotes]                   = useState('');
-  const [customerName, setCustomerName]     = useState('');
+  const [activeCategory, setActiveCategory] = useState(categories[0] ?? '');
+  const [order, setOrder]               = useState({});
+  const [tableNumber, setTableNumber]   = useState('');
+  const [orderType, setOrderType]       = useState(ORDER_TYPES[0]);
+  const [paymentMode, setPaymentMode]   = useState('Cash');
+  const [discountValue, setDiscountValue] = useState('0');
+  const [notes, setNotes]               = useState('');
+  const [customerName, setCustomerName] = useState('');
 
-  function qty(id) { return order[id]?.qty ?? 0; }
+  function qty(menuItemId) { return order[menuItemId]?.qty ?? 0; }
 
   function setQty(item, delta) {
-    if (!item.isAvailable) return;
+    if (item.isAvailable === false) return;
     setOrder((prev) => {
       const cur  = prev[item.menuItemId]?.qty ?? 0;
       const next = Math.max(0, cur + delta);
@@ -72,26 +56,16 @@ export default function FnbBillingPanel({ menuItems, recipes, onSubmit, submitti
 
   const orderEntries = Object.values(order).filter((e) => e.qty > 0);
 
-  // Build line items with ingredient deductions attached
-  const lineItems = useMemo(
-    () =>
-      orderEntries.map((e) => {
-        const perUnitDeductions = buildIngredientDeductions(e.item, recipes);
-        return {
-          itemId:    'custom',
-          itemName:  e.item.itemName,
-          unit:      e.item.unit ?? 'portion',
-          quantity:  e.qty,
-          unitPrice: Number(e.item.sellingPrice) || 0,
-          gstRate:   Number(e.item.gstRate) || 0,
-          // Pre-multiply ingredient qty by sale qty so createSale can aggregate without needing qty context
-          ingredientDeductions: perUnitDeductions
-            ? perUnitDeductions.map((d) => ({ ...d, qty: d.qty * e.qty }))
-            : [],
-        };
-      }),
-    [order, recipes], // eslint-disable-line react-hooks/exhaustive-deps
-  );
+  const lineItems = orderEntries.map((e) => ({
+    menuItemId:     e.item.menuItemId,
+    linkedRecipeId: e.item.linkedRecipeId ?? null,
+    itemId:         null,
+    itemName:       e.item.itemName,
+    unit:           e.item.unit ?? 'portion',
+    quantity:       e.qty,
+    unitPrice:      Number(e.item.sellingPrice) || 0,
+    gstRate:        Number(e.item.gstRate) || defaultTaxRate,
+  }));
 
   const totals = useMemo(
     () => computeInvoiceTotals({ lineItems, discountType: 'flat', discountValue }),
@@ -105,36 +79,31 @@ export default function FnbBillingPanel({ menuItems, recipes, onSubmit, submitti
     const rows = orderEntries
       .map((e) => `<tr><td>${e.item.itemName}</td><td style="text-align:right">${e.qty}</td></tr>`)
       .join('');
-    win.document.write(`
-      <!DOCTYPE html><html><head>
-        <title>KOT</title>
-        <style>
-          body { font-family: monospace; font-size: 13px; margin: 16px; }
-          h2 { text-align: center; font-size: 16px; }
-          .meta { margin-bottom: 12px; font-size: 12px; }
-          table { width: 100%; border-collapse: collapse; }
-          th, td { padding: 4px 0; vertical-align: top; }
-          th { border-bottom: 1px solid #000; }
-          hr { border: none; border-top: 1px dashed #000; margin: 12px 0; }
-        </style>
-      </head><body>
-        <h2>Kitchen Order Ticket</h2>
-        <hr>
-        <div class="meta">
-          <div>Type: <b>${orderType}</b></div>
-          ${tableNumber ? `<div>Table: <b>${tableNumber}</b></div>` : ''}
-          ${customerName ? `<div>Customer: <b>${customerName}</b></div>` : ''}
-          <div>Time: ${now}</div>
-        </div>
-        <hr>
-        <table>
-          <thead><tr><th>Item</th><th style="text-align:right">Qty</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-        <hr>
-        ${notes ? `<div style="font-size:12px">Notes: ${notes}</div>` : ''}
-      </body></html>
-    `);
+    win.document.write(`<!DOCTYPE html><html><head>
+      <title>KOT</title>
+      <style>
+        body { font-family: monospace; font-size: 13px; margin: 16px; }
+        h2   { text-align: center; font-size: 16px; }
+        .meta { margin-bottom: 12px; font-size: 12px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 4px 0; vertical-align: top; }
+        th { border-bottom: 1px solid #000; }
+        hr { border: none; border-top: 1px dashed #000; margin: 12px 0; }
+      </style>
+    </head><body>
+      <h2>Kitchen Order Ticket</h2><hr>
+      <div class="meta">
+        <div>Type: <b>${orderType}</b></div>
+        ${tableNumber   ? `<div>Table: <b>${tableNumber}</b></div>`       : ''}
+        ${customerName  ? `<div>Customer: <b>${customerName}</b></div>`   : ''}
+        <div>Time: ${now}</div>
+      </div><hr>
+      <table>
+        <thead><tr><th>Item</th><th style="text-align:right">Qty</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table><hr>
+      ${notes ? `<div style="font-size:12px">Notes: ${notes}</div>` : ''}
+    </body></html>`);
     win.document.close();
     win.focus();
     win.print();
@@ -146,13 +115,13 @@ export default function FnbBillingPanel({ menuItems, recipes, onSubmit, submitti
     await onSubmit({
       customer:     { name: customerName || 'Walk-in Customer', phone: '', address: '', GSTIN: '' },
       lineItems,
-      discountType:  'flat',
+      discountType: 'flat',
       discountValue,
       paymentMode,
-      date:          today,
-      dueDate:       null,
+      date:         today,
+      dueDate:      null,
       notes,
-      tableNumber:   tableNumber || null,
+      tableNumber:  tableNumber || null,
       orderType,
     });
   }
@@ -163,7 +132,6 @@ export default function FnbBillingPanel({ menuItems, recipes, onSubmit, submitti
     <div className="flex h-full gap-0 rounded-xl border border-gray-200 bg-white overflow-hidden" style={{ minHeight: '70vh' }}>
       {/* ── LEFT: Menu panel ── */}
       <div className="flex flex-col flex-1 min-w-0 border-r border-gray-200">
-        {/* Category tabs */}
         <div className="flex gap-0 border-b border-gray-200 overflow-x-auto">
           {categories.map((cat) => (
             <button
@@ -181,66 +149,63 @@ export default function FnbBillingPanel({ menuItems, recipes, onSubmit, submitti
           ))}
         </div>
 
-        {/* Menu items grid */}
         <div className="flex-1 overflow-y-auto p-4">
           {categories.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-40 gap-2 text-gray-400 text-sm">
-              <p>No menu items yet.</p>
-              <p className="text-xs">Go to F&amp;B Ops → Menu Master to add items.</p>
+            <div className="flex items-center justify-center h-40 text-gray-400 text-sm">
+              No menu items. Go to F&amp;B Ops → Menu Master to add items.
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               {(menu[activeCategory] ?? []).map((item) => {
-                const q           = qty(item.menuItemId);
-                const unavailable = !item.isAvailable;
+                const unavailable = item.isAvailable === false;
+                const q = qty(item.menuItemId);
                 return (
                   <div
                     key={item.menuItemId}
                     className={`rounded-lg border p-3 flex flex-col gap-2 transition ${
                       unavailable
-                        ? 'border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed'
+                        ? 'border-gray-200 bg-gray-50 opacity-50'
                         : q > 0
                         ? 'border-blue-400 bg-blue-50'
                         : 'border-gray-200 bg-white hover:border-gray-300'
                     }`}
                   >
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-gray-900 text-sm leading-tight truncate">{item.itemName}</p>
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-900 text-sm leading-tight">{item.itemName}</p>
                       <p className="text-xs text-gray-500 mt-0.5">
-                        {formatCurrency(Number(item.sellingPrice) || 0)} / {item.unit ?? 'portion'}
+                        {formatCurrency(item.sellingPrice)} / {item.unit ?? 'portion'}
                       </p>
-                      {item.description && (
-                        <p className="text-[10px] text-gray-400 mt-0.5 leading-tight line-clamp-2">{item.description}</p>
-                      )}
                       {unavailable && (
-                        <p className="text-[10px] text-red-400 mt-1 font-medium">Unavailable</p>
+                        <p className="text-[10px] text-gray-400 mt-0.5 uppercase tracking-wide">Unavailable</p>
                       )}
                     </div>
-                    {!unavailable && (
-                      <div className="flex items-center justify-between">
-                        {q === 0 ? (
-                          <button
-                            type="button"
-                            onClick={() => setQty(item, 1)}
-                            className="w-full rounded-md bg-blue-600 py-1 text-xs font-semibold text-white hover:bg-blue-700 transition"
-                          >
-                            + Add
+                    <div className="flex items-center justify-between">
+                      {unavailable ? (
+                        <div className="w-full rounded-md bg-gray-200 py-1 text-xs font-semibold text-gray-400 text-center">
+                          Unavailable
+                        </div>
+                      ) : q === 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setQty(item, 1)}
+                          className="w-full rounded-md bg-blue-600 py-1 text-xs font-semibold text-white hover:bg-blue-700 transition"
+                        >
+                          + Add
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-2 w-full justify-center">
+                          <button type="button" onClick={() => setQty(item, -1)}
+                            className="h-7 w-7 rounded-full border border-gray-300 text-gray-700 hover:bg-gray-100 font-bold text-sm flex items-center justify-center">
+                            −
                           </button>
-                        ) : (
-                          <div className="flex items-center gap-2 w-full justify-center">
-                            <button type="button" onClick={() => setQty(item, -1)}
-                              className="h-7 w-7 rounded-full border border-gray-300 text-gray-700 hover:bg-gray-100 font-bold text-sm flex items-center justify-center">
-                              −
-                            </button>
-                            <span className="text-sm font-bold text-blue-700 w-5 text-center">{q}</span>
-                            <button type="button" onClick={() => setQty(item, 1)}
-                              className="h-7 w-7 rounded-full bg-blue-600 text-white hover:bg-blue-700 font-bold text-sm flex items-center justify-center">
-                              +
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                          <span className="text-sm font-bold text-blue-700 w-5 text-center">{q}</span>
+                          <button type="button" onClick={() => setQty(item, 1)}
+                            className="h-7 w-7 rounded-full bg-blue-600 text-white hover:bg-blue-700 font-bold text-sm flex items-center justify-center">
+                            +
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -251,7 +216,6 @@ export default function FnbBillingPanel({ menuItems, recipes, onSubmit, submitti
 
       {/* ── RIGHT: Order summary ── */}
       <div className="w-72 flex-shrink-0 flex flex-col">
-        {/* Order meta */}
         <div className="border-b border-gray-200 p-4 space-y-3">
           <div className="grid grid-cols-2 gap-2">
             <div>
@@ -287,7 +251,6 @@ export default function FnbBillingPanel({ menuItems, recipes, onSubmit, submitti
           </div>
         </div>
 
-        {/* Order items */}
         <div className="flex-1 overflow-y-auto p-4">
           {orderEntries.length === 0 ? (
             <p className="text-xs text-gray-400 text-center py-8">No items added yet</p>
@@ -297,9 +260,7 @@ export default function FnbBillingPanel({ menuItems, recipes, onSubmit, submitti
                 <div key={e.item.menuItemId} className="flex items-center justify-between gap-2">
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-gray-800 truncate">{e.item.itemName}</p>
-                    <p className="text-xs text-gray-400">
-                      {formatCurrency(Number(e.item.sellingPrice))} × {e.qty}
-                    </p>
+                    <p className="text-xs text-gray-400">{formatCurrency(e.item.sellingPrice)} × {e.qty}</p>
                   </div>
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     <button type="button" onClick={() => setQty(e.item, -1)}
@@ -309,7 +270,7 @@ export default function FnbBillingPanel({ menuItems, recipes, onSubmit, submitti
                       className="h-5 w-5 rounded bg-blue-600 text-white text-xs flex items-center justify-center hover:bg-blue-700">+</button>
                   </div>
                   <p className="text-xs font-semibold text-gray-900 w-14 text-right flex-shrink-0">
-                    {formatCurrency(Number(e.item.sellingPrice) * e.qty)}
+                    {formatCurrency(e.item.sellingPrice * e.qty)}
                   </p>
                 </div>
               ))}
@@ -317,7 +278,6 @@ export default function FnbBillingPanel({ menuItems, recipes, onSubmit, submitti
           )}
         </div>
 
-        {/* Totals + actions */}
         <div className="border-t border-gray-200 p-4 space-y-3">
           <div>
             <label className="block text-xs text-gray-500 mb-1">Discount (₹)</label>
@@ -331,17 +291,14 @@ export default function FnbBillingPanel({ menuItems, recipes, onSubmit, submitti
 
           <dl className="text-sm space-y-1">
             <div className="flex justify-between text-gray-500">
-              <dt>Subtotal</dt>
-              <dd>{formatCurrency(totals.subtotal)}</dd>
+              <dt>Subtotal</dt><dd>{formatCurrency(totals.subtotal)}</dd>
             </div>
             <div className="flex justify-between text-gray-500">
-              <dt>GST</dt>
-              <dd>{formatCurrency(totals.totalGST)}</dd>
+              <dt>GST</dt><dd>{formatCurrency(totals.totalGST)}</dd>
             </div>
             {totals.discountAmount > 0 && (
               <div className="flex justify-between text-red-500">
-                <dt>Discount</dt>
-                <dd>− {formatCurrency(totals.discountAmount)}</dd>
+                <dt>Discount</dt><dd>− {formatCurrency(totals.discountAmount)}</dd>
               </div>
             )}
             <div className="flex justify-between font-bold text-gray-900 text-base pt-1 border-t border-gray-200">

@@ -89,7 +89,7 @@ function ExportBtn({ onClick, label = 'Export CSV' }) {
 
 // ─── GSTR-1 tab ───────────────────────────────────────────────────────────────
 
-function GSTR1Tab({ data, period }) {
+function GSTR1Tab({ data, period, splitMode, taxLabel }) {
   if (!data) return null;
   const { byRate, summary, invoiceRows } = data;
   const filename = `GSTR1_${period.replace(/\s/g, '_').replace(/–/g, '-')}`;
@@ -107,10 +107,14 @@ function GSTR1Tab({ data, period }) {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <SummaryCard label="Invoices"       value={data.totalInvoices}                   accent="blue"  />
         <SummaryCard label="Taxable value"  value={formatCurrency(summary.totalTaxable)} accent="blue"  />
-        <SummaryCard label="Total GST"      value={formatCurrency(summary.totalGST)}     accent="amber" />
-        <SummaryCard label="CGST + SGST"
-          value={`${formatCurrency(summary.totalCGST)} + ${formatCurrency(summary.totalSGST)}`}
-          accent="amber" />
+        <SummaryCard label={`Total ${taxLabel ?? 'Tax'}`} value={formatCurrency(summary.totalGST)} accent="amber" />
+        {splitMode === 'cgst_sgst' ? (
+          <SummaryCard label="CGST + SGST"
+            value={`${formatCurrency(summary.totalCGST)} + ${formatCurrency(summary.totalSGST)}`}
+            accent="amber" />
+        ) : (
+          <SummaryCard label="Tax collected" value={formatCurrency(summary.totalGST)} accent="amber" />
+        )}
       </div>
 
       {/* Rate-wise table */}
@@ -126,11 +130,11 @@ function GSTR1Tab({ data, period }) {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
                 <tr>
-                  <th className="px-5 py-2 text-left">GST Rate</th>
+                  <th className="px-5 py-2 text-left">{taxLabel ?? 'Tax'} Rate</th>
                   <th className="px-5 py-2 text-right">Taxable Value</th>
-                  <th className="px-5 py-2 text-right">CGST</th>
-                  <th className="px-5 py-2 text-right">SGST</th>
-                  <th className="px-5 py-2 text-right">Total GST</th>
+                  {splitMode === 'cgst_sgst' && <th className="px-5 py-2 text-right">CGST</th>}
+                  {splitMode === 'cgst_sgst' && <th className="px-5 py-2 text-right">SGST</th>}
+                  <th className="px-5 py-2 text-right">Total {taxLabel ?? 'Tax'}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -138,8 +142,8 @@ function GSTR1Tab({ data, period }) {
                   <tr key={r.rate} className="hover:bg-gray-50">
                     <td className="px-5 py-2.5 font-semibold text-gray-800">{r.rate}%</td>
                     <td className="px-5 py-2.5 text-right text-gray-700">{formatCurrency(r.taxableValue)}</td>
-                    <td className="px-5 py-2.5 text-right text-amber-700">{formatCurrency(r.cgst)}</td>
-                    <td className="px-5 py-2.5 text-right text-amber-700">{formatCurrency(r.sgst)}</td>
+                    {splitMode === 'cgst_sgst' && <td className="px-5 py-2.5 text-right text-amber-700">{formatCurrency(r.cgst)}</td>}
+                    {splitMode === 'cgst_sgst' && <td className="px-5 py-2.5 text-right text-amber-700">{formatCurrency(r.sgst)}</td>}
                     <td className="px-5 py-2.5 text-right font-semibold text-amber-800">{formatCurrency(r.totalGST)}</td>
                   </tr>
                 ))}
@@ -148,8 +152,8 @@ function GSTR1Tab({ data, period }) {
                 <tr>
                   <td className="px-5 py-2.5 text-xs font-bold uppercase tracking-wide text-gray-600">Total</td>
                   <td className="px-5 py-2.5 text-right font-bold text-gray-900">{formatCurrency(summary.totalTaxable)}</td>
-                  <td className="px-5 py-2.5 text-right font-bold text-amber-800">{formatCurrency(summary.totalCGST)}</td>
-                  <td className="px-5 py-2.5 text-right font-bold text-amber-800">{formatCurrency(summary.totalSGST)}</td>
+                  {splitMode === 'cgst_sgst' && <td className="px-5 py-2.5 text-right font-bold text-amber-800">{formatCurrency(summary.totalCGST)}</td>}
+                  {splitMode === 'cgst_sgst' && <td className="px-5 py-2.5 text-right font-bold text-amber-800">{formatCurrency(summary.totalSGST)}</td>}
                   <td className="px-5 py-2.5 text-right font-bold text-amber-900">{formatCurrency(summary.totalGST)}</td>
                 </tr>
               </tfoot>
@@ -174,11 +178,11 @@ function GSTR1Tab({ data, period }) {
                   <th className="px-4 py-2 text-left">Invoice #</th>
                   <th className="px-4 py-2 text-left">Date</th>
                   <th className="px-4 py-2 text-left">Customer</th>
-                  <th className="px-4 py-2 text-left">GSTIN</th>
+                  <th className="px-4 py-2 text-left">Tax ID</th>
                   <th className="px-4 py-2 text-right">Taxable</th>
-                  <th className="px-4 py-2 text-right">CGST</th>
-                  <th className="px-4 py-2 text-right">SGST</th>
-                  <th className="px-4 py-2 text-right">Total GST</th>
+                  {splitMode === 'cgst_sgst' && <th className="px-4 py-2 text-right">CGST</th>}
+                  {splitMode === 'cgst_sgst' && <th className="px-4 py-2 text-right">SGST</th>}
+                  <th className="px-4 py-2 text-right">Total {taxLabel ?? 'Tax'}</th>
                   <th className="px-4 py-2 text-right">Grand Total</th>
                 </tr>
               </thead>
@@ -190,8 +194,8 @@ function GSTR1Tab({ data, period }) {
                     <td className="px-4 py-2 text-gray-800">{inv.customerName || <span className="text-gray-400">—</span>}</td>
                     <td className="px-4 py-2 font-mono text-xs text-gray-500">{inv.customerGSTIN || '—'}</td>
                     <td className="px-4 py-2 text-right text-gray-700">{formatCurrency(inv.taxableValue)}</td>
-                    <td className="px-4 py-2 text-right text-amber-700">{formatCurrency(inv.cgst)}</td>
-                    <td className="px-4 py-2 text-right text-amber-700">{formatCurrency(inv.sgst)}</td>
+                    {splitMode === 'cgst_sgst' && <td className="px-4 py-2 text-right text-amber-700">{formatCurrency(inv.cgst)}</td>}
+                    {splitMode === 'cgst_sgst' && <td className="px-4 py-2 text-right text-amber-700">{formatCurrency(inv.sgst)}</td>}
                     <td className="px-4 py-2 text-right font-semibold text-amber-800">{formatCurrency(inv.totalGST)}</td>
                     <td className="px-4 py-2 text-right font-bold text-gray-900">{formatCurrency(inv.grandTotal)}</td>
                   </tr>
@@ -202,16 +206,18 @@ function GSTR1Tab({ data, period }) {
         )}
       </div>
 
-      <p className="text-xs text-gray-400">
-        * GST is treated as intra-state (CGST = SGST = Total GST ÷ 2). For inter-state supplies, consult your tax advisor.
-      </p>
+      {splitMode === 'cgst_sgst' && (
+        <p className="text-xs text-gray-400">
+          * Tax treated as intra-state (CGST = SGST = Total ÷ 2). For inter-state supplies, consult your tax advisor.
+        </p>
+      )}
     </div>
   );
 }
 
 // ─── GSTR-3B tab ─────────────────────────────────────────────────────────────
 
-function FormRow({ label, taxable, cgst, sgst, totalGST, highlight = false }) {
+function FormRow({ label, taxable, cgst, sgst, totalGST, highlight = false, splitMode }) {
   const rowClass = highlight
     ? 'bg-amber-50 font-semibold text-amber-900'
     : 'text-gray-700 hover:bg-gray-50';
@@ -219,8 +225,8 @@ function FormRow({ label, taxable, cgst, sgst, totalGST, highlight = false }) {
     <tr className={rowClass}>
       <td className="px-4 py-2.5 text-sm">{label}</td>
       <td className="px-4 py-2.5 text-right text-sm">{taxable !== undefined ? formatCurrency(taxable) : ''}</td>
-      <td className="px-4 py-2.5 text-right text-sm text-amber-700">{cgst !== undefined ? formatCurrency(cgst) : ''}</td>
-      <td className="px-4 py-2.5 text-right text-sm text-amber-700">{sgst !== undefined ? formatCurrency(sgst) : ''}</td>
+      {splitMode === 'cgst_sgst' && <td className="px-4 py-2.5 text-right text-sm text-amber-700">{cgst !== undefined ? formatCurrency(cgst) : ''}</td>}
+      {splitMode === 'cgst_sgst' && <td className="px-4 py-2.5 text-right text-sm text-amber-700">{sgst !== undefined ? formatCurrency(sgst) : ''}</td>}
       <td className="px-4 py-2.5 text-right text-sm font-semibold">{totalGST !== undefined ? formatCurrency(totalGST) : ''}</td>
     </tr>
   );
@@ -236,7 +242,7 @@ function SectionHead({ number, title }) {
   );
 }
 
-function GSTR3BTab({ data, period }) {
+function GSTR3BTab({ data, period, splitMode, taxLabel }) {
   if (!data) return null;
   const { outward, itc, net } = data;
 
@@ -264,9 +270,9 @@ function GSTR3BTab({ data, period }) {
       <tr>
         <th className="px-4 py-2 text-left">Description</th>
         <th className="px-4 py-2 text-right">Taxable Value</th>
-        <th className="px-4 py-2 text-right">CGST</th>
-        <th className="px-4 py-2 text-right">SGST</th>
-        <th className="px-4 py-2 text-right">Total GST</th>
+        {splitMode === 'cgst_sgst' && <th className="px-4 py-2 text-right">CGST</th>}
+        {splitMode === 'cgst_sgst' && <th className="px-4 py-2 text-right">SGST</th>}
+        <th className="px-4 py-2 text-right">Total {taxLabel ?? 'Tax'}</th>
       </tr>
     </thead>
   );
@@ -275,10 +281,10 @@ function GSTR3BTab({ data, period }) {
     <div className="flex flex-col gap-6">
       {/* Top stat strip */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <SummaryCard label="Sales invoices"    value={data.totalSales}                  accent="blue"  />
-        <SummaryCard label="Purchase bills"    value={data.totalPurchases}              accent="blue"  />
-        <SummaryCard label="GST collected"     value={formatCurrency(outward.totalGST)} accent="amber" />
-        <SummaryCard label="Net GST payable"   value={formatCurrency(net.totalGST)}
+        <SummaryCard label="Sales invoices"                       value={data.totalSales}                  accent="blue"  />
+        <SummaryCard label="Purchase bills"                       value={data.totalPurchases}              accent="blue"  />
+        <SummaryCard label={`${taxLabel ?? 'Tax'} collected`}    value={formatCurrency(outward.totalGST)} accent="amber" />
+        <SummaryCard label={`Net ${taxLabel ?? 'Tax'} payable`}  value={formatCurrency(net.totalGST)}
           sub={net.creditCarry > 0 ? `Excess credit: ${formatCurrency(net.creditCarry)}` : undefined}
           accent={net.totalGST > 0 ? 'red' : 'green'} />
       </div>
@@ -299,36 +305,36 @@ function GSTR3BTab({ data, period }) {
             <tbody className="divide-y divide-gray-100">
               <SectionHead number="3.1" title="Details of Outward Supplies and Inward Supplies Liable to Reverse Charge" />
               <FormRow label="(a) Outward taxable supplies"
-                taxable={outward.taxableValue} cgst={outward.cgst} sgst={outward.sgst} totalGST={outward.totalGST} />
-              <FormRow label="(b) Nil rated / exempt / non-GST supplies"
-                taxable={outward.nilValue} />
+                taxable={outward.taxableValue} cgst={outward.cgst} sgst={outward.sgst} totalGST={outward.totalGST} splitMode={splitMode} />
+              <FormRow label="(b) Nil rated / exempt / non-taxable supplies"
+                taxable={outward.nilValue} splitMode={splitMode} />
               <tr className="bg-gray-50">
-                <td className="px-4 py-2 text-xs font-semibold text-gray-600">Total outward (3.1)</td>
+                <td className="px-4 py-2 text-xs font-semibold text-gray-600">Total outward</td>
                 <td className="px-4 py-2 text-right text-xs font-semibold text-gray-800">{formatCurrency(outward.taxableValue + outward.nilValue)}</td>
-                <td className="px-4 py-2 text-right text-xs font-semibold text-amber-700">{formatCurrency(outward.cgst)}</td>
-                <td className="px-4 py-2 text-right text-xs font-semibold text-amber-700">{formatCurrency(outward.sgst)}</td>
+                {splitMode === 'cgst_sgst' && <td className="px-4 py-2 text-right text-xs font-semibold text-amber-700">{formatCurrency(outward.cgst)}</td>}
+                {splitMode === 'cgst_sgst' && <td className="px-4 py-2 text-right text-xs font-semibold text-amber-700">{formatCurrency(outward.sgst)}</td>}
                 <td className="px-4 py-2 text-right text-xs font-semibold text-amber-800">{formatCurrency(outward.totalGST)}</td>
               </tr>
 
               <SectionHead number="4" title="Eligible Input Tax Credit" />
-              <FormRow label="(A)(5) All other ITC (from purchases)"
-                taxable={itc.taxableValue} cgst={itc.cgst} sgst={itc.sgst} totalGST={itc.totalGST} />
+              <FormRow label="Input tax credit (from purchases)"
+                taxable={itc.taxableValue} cgst={itc.cgst} sgst={itc.sgst} totalGST={itc.totalGST} splitMode={splitMode} />
               <tr className="bg-gray-50">
-                <td className="px-4 py-2 text-xs font-semibold text-gray-600">Total ITC (4)</td>
+                <td className="px-4 py-2 text-xs font-semibold text-gray-600">Total ITC</td>
                 <td className="px-4 py-2 text-right text-xs font-semibold text-gray-800">{formatCurrency(itc.taxableValue)}</td>
-                <td className="px-4 py-2 text-right text-xs font-semibold text-green-700">{formatCurrency(itc.cgst)}</td>
-                <td className="px-4 py-2 text-right text-xs font-semibold text-green-700">{formatCurrency(itc.sgst)}</td>
+                {splitMode === 'cgst_sgst' && <td className="px-4 py-2 text-right text-xs font-semibold text-green-700">{formatCurrency(itc.cgst)}</td>}
+                {splitMode === 'cgst_sgst' && <td className="px-4 py-2 text-right text-xs font-semibold text-green-700">{formatCurrency(itc.sgst)}</td>}
                 <td className="px-4 py-2 text-right text-xs font-semibold text-green-800">{formatCurrency(itc.totalGST)}</td>
               </tr>
 
-              <SectionHead number="6" title="Net GST Payable" />
+              <SectionHead number="6" title={`Net ${taxLabel ?? 'Tax'} Payable`} />
               <tr className={net.totalGST > 0 ? 'bg-red-50' : 'bg-green-50'}>
                 <td className="px-4 py-2.5 text-sm font-semibold text-gray-800">
-                  {net.totalGST > 0 ? 'GST payable (Output − ITC)' : 'Excess ITC (credit carry forward)'}
+                  {net.totalGST > 0 ? `${taxLabel ?? 'Tax'} payable (Output − ITC)` : 'Excess ITC (credit carry forward)'}
                 </td>
                 <td className="px-4 py-2.5" />
-                <td className="px-4 py-2.5 text-right text-sm font-bold text-red-700">{formatCurrency(net.cgst)}</td>
-                <td className="px-4 py-2.5 text-right text-sm font-bold text-red-700">{formatCurrency(net.sgst)}</td>
+                {splitMode === 'cgst_sgst' && <td className="px-4 py-2.5 text-right text-sm font-bold text-red-700">{formatCurrency(net.cgst)}</td>}
+                {splitMode === 'cgst_sgst' && <td className="px-4 py-2.5 text-right text-sm font-bold text-red-700">{formatCurrency(net.sgst)}</td>}
                 <td className={`px-4 py-2.5 text-right text-base font-extrabold ${net.totalGST > 0 ? 'text-red-800' : 'text-green-700'}`}>
                   {net.totalGST > 0 ? formatCurrency(net.totalGST) : formatCurrency(net.creditCarry)}
                 </td>
@@ -400,7 +406,7 @@ function GSTR3BTab({ data, period }) {
       </div>
 
       <p className="text-xs text-gray-400">
-        * This is a summary for reference only. File your returns on the official GST portal (gst.gov.in). Intra-state split assumed (CGST = SGST).
+        * This is a summary for reference only. Consult your tax advisor for filing. {splitMode === 'cgst_sgst' ? 'Intra-state split assumed (CGST = SGST).' : ''}
       </p>
     </div>
   );
@@ -408,13 +414,13 @@ function GSTR3BTab({ data, period }) {
 
 // ─── main page ────────────────────────────────────────────────────────────────
 
-const TABS = [
-  { id: 'gstr1', label: 'GSTR-1 — Outward Supplies' },
-  { id: 'gstr3b', label: 'GSTR-3B — Consolidated Return' },
-];
-
 export default function GSTPage() {
-  const { activeCompanyId } = useApp();
+  const { activeCompanyId, taxLabel, taxReportTitle, tabA, tabB, splitMode } = useApp();
+
+  const TABS = [
+    { id: 'gstr1',  label: tabA  ?? 'Outward Supplies'    },
+    { id: 'gstr3b', label: tabB  ?? 'Consolidated Return' },
+  ];
 
   const [fromDate, setFromDate] = useState(toInputDate(monthStart()));
   const [toDate,   setToDate]   = useState(toInputDate(monthEnd()));
@@ -459,9 +465,9 @@ export default function GSTPage() {
       {/* Page header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">GST Reports</h1>
+          <h1 className="text-2xl font-bold text-gray-900">{taxReportTitle ?? 'Tax Reports'}</h1>
           <p className="text-sm text-gray-500">
-            GSTR-1 and GSTR-3B summaries computed from recorded sales and purchases.
+            Tax summaries computed from recorded sales and purchases.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -520,8 +526,8 @@ export default function GSTPage() {
         <div className="flex items-center justify-center py-20"><LoadingSpinner /></div>
       ) : (
         <>
-          {tab === 'gstr1'  && <GSTR1Tab  data={gstr1}  period={period} />}
-          {tab === 'gstr3b' && <GSTR3BTab data={gstr3b} period={period} />}
+          {tab === 'gstr1'  && <GSTR1Tab  data={gstr1}  period={period} splitMode={splitMode} taxLabel={taxLabel} />}
+          {tab === 'gstr3b' && <GSTR3BTab data={gstr3b} period={period} splitMode={splitMode} taxLabel={taxLabel} />}
         </>
       )}
     </div>
