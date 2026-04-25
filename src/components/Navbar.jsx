@@ -36,12 +36,13 @@ const ACCOUNTS_LINKS = [
 const ACCOUNTS_PREFIXES = ACCOUNTS_LINKS.map((l) => l.to);
 
 const FNB_LINKS = [
-  { to: '/recipes',    label: 'Recipes'          },
-  { to: '/wastage',    label: 'Wastage Tracking'  },
-  { to: '/production', label: 'Production Log'    },
+  { to: '/fnb/menu-master', label: 'Menu Master'      },
+  { to: '/recipes',         label: 'Recipes'          },
+  { to: '/wastage',         label: 'Wastage Tracking'  },
+  { to: '/production',      label: 'Production Log'    },
 ];
 
-const FNB_PREFIXES = FNB_LINKS.map((l) => l.to);
+const FNB_PREFIXES = ['/fnb', '/recipes', '/wastage', '/production'];
 
 function FnbDropdown() {
   const [open, setOpen] = useState(false);

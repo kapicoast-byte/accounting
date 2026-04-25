@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext';
 import { listCustomers } from '../services/customerService';
 import { listInventoryItems } from '../services/inventoryService';
 import { listRecipes } from '../services/recipeService';
+import { listMenuItems } from '../services/menuItemService';
 import { createSale, computeInvoiceTotals, PAYMENT_MODES } from '../services/saleService';
 import { formatCurrency } from '../utils/format';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -223,7 +224,7 @@ function StandardInvoiceForm({ inventoryItems, recipes, mode, onSaved }) {
 
 // ─── F&B invoice wrapper ─────────────────────────────────────────────────────
 
-function FnbInvoicePage({ inventoryItems, recipes }) {
+function FnbInvoicePage({ menuItems, recipes }) {
   const navigate = useNavigate();
   const { activeCompanyId } = useApp();
   const [submitting, setSubmitting] = useState(false);
@@ -246,13 +247,13 @@ function FnbInvoicePage({ inventoryItems, recipes }) {
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">F&amp;B Billing</h1>
-          <p className="text-sm text-gray-500">Quick order & billing for food and beverage</p>
+          <p className="text-sm text-gray-500">Quick order &amp; billing for food and beverage</p>
         </div>
         <Link to="/sales" className="text-sm text-gray-500 hover:text-gray-700">← Back to sales</Link>
       </div>
       <FnbBillingPanel
+        menuItems={menuItems}
         recipes={recipes}
-        inventoryItems={inventoryItems}
         onSubmit={handleSubmit}
         submitting={submitting}
         error={serverError}
@@ -267,6 +268,7 @@ export default function CreateInvoicePage() {
   const { activeCompany, activeCompanyId } = useApp();
   const [inventoryItems, setInventoryItems] = useState([]);
   const [recipes, setRecipes]               = useState([]);
+  const [menuItems, setMenuItems]           = useState([]);
   const [loading, setLoading]               = useState(true);
 
   const businessType = activeCompany?.businessType ?? '';
@@ -275,12 +277,17 @@ export default function CreateInvoicePage() {
     if (!activeCompanyId) return;
     setLoading(true);
     try {
-      const [inv, rs] = await Promise.all([
-        listInventoryItems(activeCompanyId),
-        businessType === 'F&B' ? listRecipes(activeCompanyId) : Promise.resolve([]),
-      ]);
-      setInventoryItems(inv.filter((i) => i.isActive !== false));
-      setRecipes(rs);
+      if (businessType === 'F&B') {
+        const [items, rs] = await Promise.all([
+          listMenuItems(activeCompanyId),
+          listRecipes(activeCompanyId),
+        ]);
+        setMenuItems(items);
+        setRecipes(rs);
+      } else {
+        const inv = await listInventoryItems(activeCompanyId);
+        setInventoryItems(inv.filter((i) => i.isActive !== false));
+      }
     } finally {
       setLoading(false);
     }
@@ -291,7 +298,7 @@ export default function CreateInvoicePage() {
   if (loading) return <div className="flex items-center justify-center py-20"><LoadingSpinner /></div>;
 
   if (businessType === 'F&B') {
-    return <FnbInvoicePage inventoryItems={inventoryItems} recipes={recipes} />;
+    return <FnbInvoicePage menuItems={menuItems} recipes={recipes} />;
   }
 
   const mode =

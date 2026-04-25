@@ -33,6 +33,7 @@ import InventoryReportPage from './pages/reports/InventoryReportPage';
 import RecipesPage from './pages/RecipesPage';
 import WastagePage from './pages/WastagePage';
 import ProductionPage from './pages/ProductionPage';
+import MenuMasterPage from './pages/MenuMasterPage';
 
 export default function App() {
   return (
@@ -78,6 +79,7 @@ export default function App() {
                 <Route path="/recipes" element={<RecipesPage />} />
                 <Route path="/wastage" element={<WastagePage />} />
                 <Route path="/production" element={<ProductionPage />} />
+                <Route path="/fnb/menu-master" element={<MenuMasterPage />} />
               </Route>
             </Route>
           </Route>
