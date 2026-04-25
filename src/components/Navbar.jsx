@@ -12,6 +12,7 @@ const BT_COLORS = {
   'Retail':        'bg-green-100 text-green-700',
   'Manufacturing': 'bg-purple-100 text-purple-700',
   'Services':      'bg-blue-100 text-blue-700',
+  'Mixed':         'bg-teal-100 text-teal-700',
   'Other':         'bg-gray-100 text-gray-600',
 };
 
@@ -36,12 +37,13 @@ const ACCOUNTS_LINKS = [
 const ACCOUNTS_PREFIXES = ACCOUNTS_LINKS.map((l) => l.to);
 
 const FNB_LINKS = [
-  { to: '/recipes',    label: 'Recipes'          },
-  { to: '/wastage',    label: 'Wastage Tracking'  },
-  { to: '/production', label: 'Production Log'    },
+  { to: '/fnb/menu-master', label: 'Menu Master'      },
+  { to: '/recipes',         label: 'Recipes'          },
+  { to: '/wastage',         label: 'Wastage Tracking'  },
+  { to: '/production',      label: 'Production Log'    },
 ];
 
-const FNB_PREFIXES = FNB_LINKS.map((l) => l.to);
+const FNB_PREFIXES = ['/fnb', '/recipes', '/wastage', '/production'];
 
 function FnbDropdown() {
   const [open, setOpen] = useState(false);

@@ -397,26 +397,52 @@ export default function CompanyProfilePage() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-1">
-            <label htmlFor="businessType" className="text-sm font-medium text-gray-700">Business type</label>
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-medium text-gray-700">Business type</label>
             {isAdmin ? (
-              <select
-                id="businessType"
-                name="businessType"
-                value={form.businessType}
-                onChange={handleChange}
-                disabled={saving}
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
-              >
-                <option value="">— Select type —</option>
-                {BUSINESS_TYPES.map((bt) => (
-                  <option key={bt.value} value={bt.value}>{bt.label}</option>
-                ))}
-              </select>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {BUSINESS_TYPES.map((bt) => {
+                  const selected = form.businessType === bt.value;
+                  return (
+                    <button
+                      key={bt.value}
+                      type="button"
+                      disabled={saving}
+                      onClick={() => {
+                        setForm((prev) => ({ ...prev, businessType: bt.value }));
+                        setSaveError('');
+                        setSaveSuccess(false);
+                      }}
+                      className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-left transition disabled:opacity-50 ${
+                        selected
+                          ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500'
+                          : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      <span className="text-xl leading-none mt-0.5 flex-shrink-0">{bt.icon}</span>
+                      <div className="min-w-0">
+                        <p className={`text-sm font-semibold ${selected ? 'text-blue-700' : 'text-gray-900'}`}>
+                          {bt.label}
+                        </p>
+                        <p className="mt-0.5 text-xs text-gray-500 leading-relaxed">{bt.desc}</p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             ) : (
-              <p className="text-sm text-gray-700 py-2">
-                {BUSINESS_TYPES.find((bt) => bt.value === form.businessType)?.label ?? '—'}
-              </p>
+              (() => {
+                const bt = BUSINESS_TYPES.find((b) => b.value === form.businessType);
+                return bt ? (
+                  <div className="flex items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                    <span className="text-xl leading-none mt-0.5">{bt.icon}</span>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">{bt.label}</p>
+                      <p className="mt-0.5 text-xs text-gray-500">{bt.desc}</p>
+                    </div>
+                  </div>
+                ) : <p className="text-sm text-gray-500 py-2">—</p>;
+              })()
             )}
           </div>
 

@@ -23,11 +23,36 @@ export const COMPANY_TYPE = {
 };
 
 export const BUSINESS_TYPES = [
-  { value: 'F&B',           label: 'Food & Beverage (F&B)'  },
-  { value: 'Retail',        label: 'Retail / Supermarket'   },
-  { value: 'Manufacturing', label: 'Manufacturing'           },
-  { value: 'Services',      label: 'Services'               },
-  { value: 'Other',         label: 'Other'                  },
+  {
+    value: 'F&B',
+    label: 'F&B Only',
+    icon:  '🍽️',
+    desc:  'Menu Master POS — category tabs, item cards with +/− buttons, table orders, order type (Dine In / Takeaway / Delivery), and KOT printing. No manual item typing.',
+  },
+  {
+    value: 'Retail',
+    label: 'Retail / Supermarket',
+    icon:  '🛒',
+    desc:  'Inventory item picker with name search and barcode scan. Quantity and price are editable per line. Customer name is optional.',
+  },
+  {
+    value: 'Manufacturing',
+    label: 'Manufacturing',
+    icon:  '🏭',
+    desc:  'Select finished goods from inventory. Add batch number and quantity per line. Optional link to a production log run.',
+  },
+  {
+    value: 'Services',
+    label: 'Services',
+    icon:  '💼',
+    desc:  'Free text line items with description, quantity, rate, and unit (hours / days / pieces). Hourly billing toggle available. Customer name and contact required.',
+  },
+  {
+    value: 'Mixed',
+    label: 'Mixed (F&B + Retail)',
+    icon:  '🔀',
+    desc:  'Toggle between Menu POS for table orders and inventory picker for retail sales. Both create separate invoices under the same company.',
+  },
 ];
 
 const companiesCol = collection(db, 'companies');

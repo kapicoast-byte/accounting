@@ -66,7 +66,25 @@ function formatInvoiceNumber(year, count) {
 // ─── create sale (transaction) ───────────────────────────────────────────────
 
 export async function createSale(companyId, { customer, lineItems, discountType, discountValue, paymentMode, date, dueDate, notes, tableNumber, orderType }) {
-  const inventoryLines = lineItems.filter((l) => l.itemId && l.itemId !== 'custom');
+  // Direct inventory deductions (standard sales — itemId is a real inventory doc)
+  const inventoryLines = lineItems.filter((l) => l.itemId && l.itemId !== 'custom' && !l.ingredientDeductions?.length);
+
+  // Recipe-based ingredient deductions (F&B menu items with linked recipe).
+  // Each line may carry ingredientDeductions: [{ itemId, itemName, qty, unit }]
+  // Merge deductions for the same ingredient across multiple lines.
+  const ingDeductMap = {};
+  lineItems.forEach((line) => {
+    (line.ingredientDeductions ?? []).forEach((d) => {
+      if (!d.itemId) return;
+      if (ingDeductMap[d.itemId]) {
+        ingDeductMap[d.itemId].qty += Number(d.qty) || 0;
+      } else {
+        ingDeductMap[d.itemId] = { itemId: d.itemId, itemName: d.itemName, qty: Number(d.qty) || 0, unit: d.unit ?? '' };
+      }
+    });
+  });
+  const ingDeductions = Object.values(ingDeductMap);
+
   const totals = computeInvoiceTotals({ lineItems, discountType, discountValue });
   const isPaid = paymentMode !== 'Credit';
   const paidAmount = isPaid ? totals.grandTotal : 0;
@@ -76,15 +94,24 @@ export async function createSale(companyId, { customer, lineItems, discountType,
 
   const counterRef = counterDocRef(companyId);
   const saleRef    = doc(salesCol(companyId));
-  const adjRefs    = inventoryLines.map(() => doc(adjustmentsCol(companyId)));
-  const invRefs    = inventoryLines.map((l) => inventoryDocRef(companyId, l.itemId));
+
+  // Refs for direct inventory line deductions
+  const adjRefs = inventoryLines.map(() => doc(adjustmentsCol(companyId)));
+  const invRefs = inventoryLines.map((l) => inventoryDocRef(companyId, l.itemId));
+
+  // Refs for ingredient deductions
+  const ingAdjRefs = ingDeductions.map(() => doc(adjustmentsCol(companyId)));
+  const ingInvRefs = ingDeductions.map((d) => inventoryDocRef(companyId, d.itemId));
+
   const journalRef = newJournalRef(companyId);
 
   return await runTransaction(db, async (tx) => {
     // ── reads ──
-    const counterSnap = await tx.get(counterRef);
-    const invSnaps    = await Promise.all(invRefs.map((r) => tx.get(r)));
+    const counterSnap  = await tx.get(counterRef);
+    const invSnaps     = await Promise.all(invRefs.map((r) => tx.get(r)));
+    const ingInvSnaps  = await Promise.all(ingInvRefs.map((r) => tx.get(r)));
 
+    // Validate direct inventory stock
     for (let i = 0; i < inventoryLines.length; i++) {
       const line = inventoryLines[i];
       const snap = invSnaps[i];
@@ -93,6 +120,19 @@ export async function createSale(companyId, { customer, lineItems, discountType,
       if (available < line.quantity) {
         throw new Error(
           `Insufficient stock for "${line.itemName}". Available: ${available} ${snap.data().unit}, requested: ${line.quantity}.`,
+        );
+      }
+    }
+
+    // Validate ingredient stock (best-effort — warn but allow if item missing)
+    for (let i = 0; i < ingDeductions.length; i++) {
+      const d    = ingDeductions[i];
+      const snap = ingInvSnaps[i];
+      if (!snap.exists()) continue; // ingredient not in inventory → skip deduction silently
+      const available = Number(snap.data().currentStock) || 0;
+      if (available < d.qty) {
+        throw new Error(
+          `Insufficient ingredient stock for "${d.itemName}". Available: ${available} ${snap.data().unit ?? ''}, needed: ${d.qty.toFixed(3)}.`,
         );
       }
     }
@@ -127,6 +167,8 @@ export async function createSale(companyId, { customer, lineItems, discountType,
         gstRate:      Number(l.gstRate),
         lineSubtotal: Number(l.quantity) * Number(l.unitPrice),
         lineGST:      (Number(l.quantity) * Number(l.unitPrice) * Number(l.gstRate)) / 100,
+        ...(l.batchNumber       ? { batchNumber:       l.batchNumber }       : {}),
+        ...(l.productionLogRef  ? { productionLogRef:  l.productionLogRef }  : {}),
       })),
       subtotal:       totals.subtotal,
       totalGST:       totals.totalGST,
@@ -146,7 +188,7 @@ export async function createSale(companyId, { customer, lineItems, discountType,
     };
     tx.set(saleRef, saleData);
 
-    // ── stock adjustments ──
+    // ── stock adjustments: direct inventory lines ──
     for (let i = 0; i < inventoryLines.length; i++) {
       const line      = inventoryLines[i];
       const snap      = invSnaps[i];
@@ -156,6 +198,23 @@ export async function createSale(companyId, { customer, lineItems, discountType,
       tx.set(adjRefs[i], {
         itemId: line.itemId, itemName: line.itemName,
         type: 'out', quantity: line.quantity, reason: 'Sale',
+        previousStock: prevStock, newStock,
+        saleId: saleRef.id, saleInvoiceNumber: invoiceNumber,
+        createdBy: null, createdAt: serverTimestamp(),
+      });
+    }
+
+    // ── stock adjustments: recipe ingredient deductions ──
+    for (let i = 0; i < ingDeductions.length; i++) {
+      const d    = ingDeductions[i];
+      const snap = ingInvSnaps[i];
+      if (!snap.exists()) continue; // skip if ingredient not tracked in inventory
+      const prevStock = Number(snap.data().currentStock) || 0;
+      const newStock  = prevStock - d.qty;
+      tx.update(ingInvRefs[i], { currentStock: newStock, updatedAt: serverTimestamp() });
+      tx.set(ingAdjRefs[i], {
+        itemId: d.itemId, itemName: d.itemName,
+        type: 'out', quantity: d.qty, reason: 'Sale (ingredient)',
         previousStock: prevStock, newStock,
         saleId: saleRef.id, saleInvoiceNumber: invoiceNumber,
         createdBy: null, createdAt: serverTimestamp(),
