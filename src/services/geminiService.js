@@ -1,5 +1,5 @@
 const API_KEY  = import.meta.env.VITE_GEMINI_API_KEY;
-const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`;
+const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`;
 
 const EXTRACT_PROMPT = `Extract all menu items from this content.
 For each item return EXACTLY these fields:

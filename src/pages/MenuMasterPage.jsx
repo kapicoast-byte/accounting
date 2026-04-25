@@ -13,6 +13,7 @@ import {
   MENU_PORTION_UNITS,
 } from '../services/menuItemService';
 import { listInventoryItems } from '../services/inventoryService';
+import { extractMenuFromImage, extractMenuFromText } from '../services/geminiService';
 import { formatCurrency } from '../utils/format';
 import LoadingSpinner from '../components/LoadingSpinner';
 import RoleGuard from '../components/RoleGuard';
@@ -346,6 +347,235 @@ function MenuItemForm({ item, inventory, onSave, onCancel }) {
   );
 }
 
+// ─── AI Bulk Upload Modal ─────────────────────────────────────────────────────
+
+function AiBulkUploadModal({ onClose, onSaved }) {
+  const { activeCompanyId } = useApp();
+  const [tab, setTab]           = useState('image');
+  const [file, setFile]         = useState(null);
+  const [menuText, setMenuText] = useState('');
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState(null);
+  const [preview, setPreview]   = useState(null); // null = not yet extracted
+  const [saving, setSaving]     = useState(false);
+  const [savedCount, setSavedCount] = useState(null);
+
+  function switchTab(t) {
+    setTab(t);
+    setPreview(null);
+    setError(null);
+    setSavedCount(null);
+  }
+
+  async function handleExtract() {
+    setError(null);
+    setPreview(null);
+    setSavedCount(null);
+    setLoading(true);
+    try {
+      const items = tab === 'image'
+        ? await extractMenuFromImage(file)
+        : await extractMenuFromText(menuText);
+      setPreview(items);
+    } catch (err) {
+      setError(err.message ?? 'Extraction failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function patchRow(id, key, value) {
+    setPreview((prev) => prev.map((r) => r._id === id ? { ...r, [key]: value } : r));
+  }
+
+  function removeRow(id) {
+    setPreview((prev) => prev.filter((r) => r._id !== id));
+  }
+
+  async function handleSaveAll() {
+    if (!preview?.length) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await Promise.all(
+        preview.map((row, idx) =>
+          createMenuItem(activeCompanyId, {
+            itemName:     row.itemName,
+            category:     row.category,
+            sellingPrice: Number(row.sellingPrice) || 0,
+            gstRate:      Number(row.gstRate) || 5,
+            description:  row.description ?? '',
+            ingredients:  [],
+            portionSize:  1,
+            unit:         'portion',
+            isAvailable:  true,
+            displayOrder: idx,
+          }),
+        ),
+      );
+      setSavedCount(preview.length);
+      onSaved();
+    } catch (err) {
+      setError(err.message ?? 'Failed to save items. Please try again.');
+      setSaving(false);
+    }
+  }
+
+  const canExtract = tab === 'image' ? !!file : menuText.trim().length > 0;
+
+  return (
+    <div className="space-y-5">
+      {/* Tab bar */}
+      <div className="flex rounded-lg border border-gray-300 overflow-hidden w-fit">
+        {[['image', 'Upload Image'], ['text', 'Paste Text']].map(([t, label], i) => (
+          <button key={t} type="button" onClick={() => switchTab(t)}
+            className={`px-4 py-2 text-sm font-medium transition ${i > 0 ? 'border-l border-gray-300' : ''} ${
+              tab === t ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+            }`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Input area */}
+      {tab === 'image' ? (
+        <div className="space-y-3">
+          <p className="text-sm text-gray-500">
+            Upload a photo of your physical menu card. Gemini Vision will extract all items automatically.
+          </p>
+          <label className="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 p-8 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition">
+            <svg className="h-8 w-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            <span className="text-sm text-gray-500">
+              {file ? file.name : 'Click to upload menu image (JPG, PNG, PDF…)'}
+            </span>
+            <input type="file" accept="image/*" className="hidden"
+              onChange={(e) => { setFile(e.target.files[0] ?? null); setPreview(null); setSavedCount(null); }} />
+          </label>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-sm text-gray-500">Paste plain text from a PDF or typed menu.</p>
+          <textarea
+            rows={7}
+            placeholder={"Butter Chicken - ₹280\nMango Lassi - ₹80\nGulab Jamun - ₹60\n…"}
+            className="w-full rounded border border-gray-300 px-3 py-2 text-sm resize-none font-mono"
+            value={menuText}
+            onChange={(e) => { setMenuText(e.target.value); setPreview(null); setSavedCount(null); }}
+          />
+        </div>
+      )}
+
+      {error && <p className="rounded bg-red-50 border border-red-200 p-3 text-sm text-red-700">{error}</p>}
+
+      {/* Extract button — hidden after successful save */}
+      {savedCount === null && (
+        <button
+          type="button"
+          disabled={!canExtract || loading || saving}
+          onClick={handleExtract}
+          className="flex items-center gap-2 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 transition"
+        >
+          {loading && <LoadingSpinner size="sm" />}
+          {loading ? 'Extracting with AI…' : 'Extract with Gemini AI'}
+        </button>
+      )}
+
+      {/* Empty result */}
+      {preview !== null && preview.length === 0 && savedCount === null && (
+        <p className="rounded bg-amber-50 border border-amber-200 p-3 text-sm text-amber-700">
+          No items were extracted. Try a clearer image or check the text format.
+        </p>
+      )}
+
+      {/* Preview table */}
+      {preview !== null && preview.length > 0 && savedCount === null && (
+        <div className="space-y-3">
+          <p className="text-sm font-medium text-gray-700">
+            {preview.length} item{preview.length !== 1 ? 's' : ''} extracted — review and edit before saving:
+          </p>
+          <div className="rounded-lg border border-gray-200 overflow-hidden">
+            <div className="grid grid-cols-[2fr_1fr_1fr_1fr_32px] gap-2 bg-gray-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+              <div>Item Name</div>
+              <div>Category</div>
+              <div>Price (₹)</div>
+              <div>GST %</div>
+              <div />
+            </div>
+            <div className="divide-y divide-gray-100 max-h-72 overflow-y-auto">
+              {preview.map((row) => (
+                <div key={row._id} className="grid grid-cols-[2fr_1fr_1fr_1fr_32px] gap-2 items-center px-3 py-2">
+                  <input
+                    className="rounded border border-gray-300 px-2 py-1 text-sm w-full"
+                    value={row.itemName}
+                    onChange={(e) => patchRow(row._id, 'itemName', e.target.value)}
+                  />
+                  <select
+                    className="rounded border border-gray-300 px-1 py-1 text-sm w-full"
+                    value={row.category}
+                    onChange={(e) => patchRow(row._id, 'category', e.target.value)}
+                  >
+                    {MENU_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+                  </select>
+                  <input
+                    type="number" min="0" step="0.01"
+                    className="rounded border border-gray-300 px-2 py-1 text-sm w-full"
+                    value={row.sellingPrice}
+                    onChange={(e) => patchRow(row._id, 'sellingPrice', e.target.value)}
+                  />
+                  <select
+                    className="rounded border border-gray-300 px-1 py-1 text-sm w-full"
+                    value={row.gstRate}
+                    onChange={(e) => patchRow(row._id, 'gstRate', Number(e.target.value))}
+                  >
+                    {MENU_GST_RATES.map((r) => <option key={r} value={r}>{r}%</option>)}
+                  </select>
+                  <button type="button" onClick={() => removeRow(row._id)}
+                    className="text-gray-400 hover:text-red-500 text-xl leading-none flex items-center justify-center">
+                    &times;
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between pt-1">
+            <button type="button" onClick={() => setPreview(null)}
+              className="text-sm text-gray-500 hover:text-gray-700 transition">
+              &larr; Re-extract
+            </button>
+            <button
+              type="button"
+              disabled={saving || preview.length === 0}
+              onClick={handleSaveAll}
+              className="flex items-center gap-2 rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50 transition"
+            >
+              {saving && <LoadingSpinner size="sm" />}
+              {saving ? 'Saving…' : `Save All (${preview.length} item${preview.length !== 1 ? 's' : ''})`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Success */}
+      {savedCount !== null && (
+        <div className="rounded-lg bg-green-50 border border-green-200 p-6 text-center space-y-3">
+          <p className="text-green-700 font-bold text-xl">
+            {savedCount} item{savedCount !== 1 ? 's' : ''} added successfully!
+          </p>
+          <p className="text-sm text-green-600">You can edit each item individually from the menu list.</p>
+          <button type="button" onClick={onClose}
+            className="rounded-md bg-green-600 px-5 py-2 text-sm font-medium text-white hover:bg-green-700">
+            Done
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function MenuMasterPage() {
@@ -356,6 +586,7 @@ export default function MenuMasterPage() {
   const [error,     setError]     = useState(null);
   const [formOpen,  setFormOpen]  = useState(false);
   const [editItem,  setEditItem]  = useState(null);
+  const [aiOpen,    setAiOpen]    = useState(false);
   const [catFilter, setCatFilter] = useState('All');
   const [search,    setSearch]    = useState('');
 
@@ -434,10 +665,18 @@ export default function MenuMasterPage() {
           </p>
         </div>
         <RoleGuard permission="edit">
-          <button onClick={openNew}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
-            + New Menu Item
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setAiOpen(true)}
+              className="rounded-md border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 transition"
+            >
+              Bulk Upload with AI
+            </button>
+            <button onClick={openNew}
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+              + New Menu Item
+            </button>
+          </div>
         </RoleGuard>
       </div>
 
@@ -582,6 +821,18 @@ export default function MenuMasterPage() {
           inventory={inventory}
           onSave={handleSave}
           onCancel={() => { setFormOpen(false); setEditItem(null); }}
+        />
+      </Modal>
+
+      <Modal
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        title="Bulk Upload with AI"
+        size="lg"
+      >
+        <AiBulkUploadModal
+          onClose={() => setAiOpen(false)}
+          onSaved={() => { load(); }}
         />
       </Modal>
     </div>
