@@ -17,7 +17,7 @@ import StockValuationCard from '../components/inventory/StockValuationCard';
 const ALL = 'All';
 
 export default function InventoryPage() {
-  const { user, activeCompanyId } = useApp();
+  const { user, activeCompanyId, isConsolidated, consolidatedIds, companies } = useApp();
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -31,19 +31,35 @@ export default function InventoryPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [adjustItem, setAdjustItem] = useState(null);
 
+  const consolidatedKey = consolidatedIds.join(',');
+
   const load = useCallback(async () => {
     if (!activeCompanyId) return;
     setLoading(true);
     setError(null);
     try {
-      const list = await listInventoryItems(activeCompanyId);
-      setItems(list);
+      if (isConsolidated && consolidatedIds.length > 1) {
+        const nameMap = Object.fromEntries(companies.map((c) => [c.companyId, c.companyName]));
+        const results = await Promise.all(consolidatedIds.map((id) => listInventoryItems(id)));
+        const allItems = results.flatMap((list, i) =>
+          list.map((item) => ({
+            ...item,
+            _companyId:   consolidatedIds[i],
+            _companyName: nameMap[consolidatedIds[i]] ?? consolidatedIds[i],
+          })),
+        );
+        setItems(allItems);
+      } else {
+        const list = await listInventoryItems(activeCompanyId);
+        setItems(list);
+      }
     } catch (err) {
       setError(err.message ?? 'Failed to load inventory.');
     } finally {
       setLoading(false);
     }
-  }, [activeCompanyId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCompanyId, consolidatedKey, isConsolidated]);
 
   useEffect(() => {
     setItems([]);
@@ -86,20 +102,31 @@ export default function InventoryPage() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Inventory</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-gray-900">Inventory</h1>
+            {isConsolidated && (
+              <span className="rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-semibold text-indigo-700">
+                Consolidated
+              </span>
+            )}
+          </div>
           <p className="text-sm text-gray-500">
-            Manage raw materials, finished dishes, beverages and packaging.
+            {isConsolidated
+              ? `Showing stock across ${consolidatedIds.length} companies`
+              : 'Manage raw materials, finished dishes, beverages and packaging.'}
           </p>
         </div>
-        <RoleGuard permission="edit">
-          <button
-            type="button"
-            onClick={openCreate}
-            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700"
-          >
-            + Add item
-          </button>
-        </RoleGuard>
+        {!isConsolidated && (
+          <RoleGuard permission="edit">
+            <button
+              type="button"
+              onClick={openCreate}
+              className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              + Add item
+            </button>
+          </RoleGuard>
+        )}
       </div>
 
       <StockValuationCard valuation={valuation} />
@@ -139,6 +166,7 @@ export default function InventoryPage() {
           </label>
           <div className="ml-auto text-xs text-gray-500">
             Showing {filtered.length} of {items.length}
+            {isConsolidated && ` (${consolidatedIds.length} companies)`}
           </div>
         </div>
 
@@ -157,6 +185,7 @@ export default function InventoryPage() {
             <table className="w-full text-left text-sm">
               <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
                 <tr>
+                  {isConsolidated && <th className="px-4 py-2">Company</th>}
                   <th className="px-4 py-2">Item</th>
                   <th className="px-4 py-2">Category</th>
                   <th className="px-4 py-2 text-right">Stock</th>
@@ -164,7 +193,7 @@ export default function InventoryPage() {
                   <th className="px-4 py-2 text-right">Cost</th>
                   <th className="px-4 py-2 text-right">Selling</th>
                   <th className="px-4 py-2 text-right">Value</th>
-                  <th className="px-4 py-2"></th>
+                  {!isConsolidated && <th className="px-4 py-2"></th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -172,7 +201,12 @@ export default function InventoryPage() {
                   const low = isLowStock(item);
                   const value = (Number(item.currentStock) || 0) * (Number(item.costPrice) || 0);
                   return (
-                    <tr key={item.itemId} className={low ? 'bg-red-50/50' : ''}>
+                    <tr key={`${item._companyId ?? activeCompanyId}-${item.itemId}`} className={low ? 'bg-red-50/50' : ''}>
+                      {isConsolidated && (
+                        <td className="px-4 py-2 text-xs text-indigo-700 font-medium whitespace-nowrap">
+                          {item._companyName}
+                        </td>
+                      )}
                       <td className="px-4 py-2">
                         <div className="font-medium text-gray-800">{item.itemName}</div>
                         <div className="text-xs text-gray-400">
@@ -200,35 +234,37 @@ export default function InventoryPage() {
                       <td className="px-4 py-2 text-right font-medium text-gray-800">
                         {formatCurrency(value)}
                       </td>
-                      <td className="px-4 py-2">
-                        <div className="flex justify-end gap-2 text-xs">
-                          <button
-                            type="button"
-                            onClick={() => setAdjustItem(item)}
-                            className="rounded-md border border-gray-300 bg-white px-2 py-1 text-gray-700 hover:bg-gray-50"
-                          >
-                            Adjust
-                          </button>
-                          <RoleGuard permission="edit">
+                      {!isConsolidated && (
+                        <td className="px-4 py-2">
+                          <div className="flex justify-end gap-2 text-xs">
                             <button
                               type="button"
-                              onClick={() => openEdit(item)}
+                              onClick={() => setAdjustItem(item)}
                               className="rounded-md border border-gray-300 bg-white px-2 py-1 text-gray-700 hover:bg-gray-50"
                             >
-                              Edit
+                              Adjust
                             </button>
-                          </RoleGuard>
-                          <RoleGuard permission="delete">
-                            <button
-                              type="button"
-                              onClick={() => handleDelete(item)}
-                              className="rounded-md border border-red-200 bg-white px-2 py-1 text-red-700 hover:bg-red-50"
-                            >
-                              Delete
-                            </button>
-                          </RoleGuard>
-                        </div>
-                      </td>
+                            <RoleGuard permission="edit">
+                              <button
+                                type="button"
+                                onClick={() => openEdit(item)}
+                                className="rounded-md border border-gray-300 bg-white px-2 py-1 text-gray-700 hover:bg-gray-50"
+                              >
+                                Edit
+                              </button>
+                            </RoleGuard>
+                            <RoleGuard permission="delete">
+                              <button
+                                type="button"
+                                onClick={() => handleDelete(item)}
+                                className="rounded-md border border-red-200 bg-white px-2 py-1 text-red-700 hover:bg-red-50"
+                              >
+                                Delete
+                              </button>
+                            </RoleGuard>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}

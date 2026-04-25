@@ -11,8 +11,13 @@ import AskYourBooksWidget from '../components/ai/AskYourBooksWidget';
 import ExpenseAnomalyAlert from '../components/ai/ExpenseAnomalyAlert';
 
 export default function DashboardPage() {
-  const { activeCompany, activeCompanyId } = useApp();
-  const { data, loading, error, refresh } = useDashboard(activeCompanyId);
+  const { activeCompany, activeCompanyId, isConsolidated, consolidatedIds, companies } = useApp();
+  const { data, loading, error, refresh } = useDashboard({
+    companyId: activeCompanyId,
+    isConsolidated,
+    consolidatedIds,
+    companies,
+  });
 
   return (
     <div className="flex flex-col gap-6">
@@ -65,6 +70,7 @@ export default function DashboardPage() {
           subtitle={`${data?.todaysSales?.count ?? 0} invoices`}
           accent="green"
           loading={loading}
+          breakdown={data?.todaysSales?.breakdown}
         />
         <StatCard
           title="Today's purchases"
@@ -72,6 +78,7 @@ export default function DashboardPage() {
           subtitle={`${data?.todaysPurchases?.count ?? 0} bills`}
           accent="blue"
           loading={loading}
+          breakdown={data?.todaysPurchases?.breakdown}
         />
         <StatCard
           title="Receivables (owed to us)"
@@ -79,6 +86,7 @@ export default function DashboardPage() {
           subtitle={`${data?.receivables?.count ?? 0} open invoices`}
           accent="green"
           loading={loading}
+          breakdown={data?.receivables?.breakdown}
         />
         <StatCard
           title="Payables (we owe)"
@@ -86,6 +94,7 @@ export default function DashboardPage() {
           subtitle={`${data?.payables?.count ?? 0} open bills`}
           accent="red"
           loading={loading}
+          breakdown={data?.payables?.breakdown}
         />
       </section>
 

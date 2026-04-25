@@ -191,3 +191,101 @@ export async function getDashboardSnapshot(companyId) {
     weeklyChart,
   };
 }
+
+// ─── Consolidated snapshot (parent + subsidiaries) ────────────────────────────
+// companies: array of { companyId, companyName } used to build per-company labels.
+export async function getConsolidatedDashboardSnapshot(companyIds, companies = []) {
+  // Fetch all individual snapshots in parallel.
+  const results = await Promise.all(companyIds.map((id) => getDashboardSnapshot(id)));
+
+  const nameMap = Object.fromEntries(companies.map((c) => [c.companyId, c.companyName]));
+
+  // Helper: build a breakdown array [{label, total}] for a named metric.
+  function breakdown(metric, field = 'total') {
+    return results.map((snap, i) => ({
+      label: nameMap[companyIds[i]] ?? companyIds[i],
+      total: snap[metric]?.[field] ?? 0,
+    }));
+  }
+
+  function sumMetric(metric, field = 'total') {
+    return results.reduce((s, snap) => s + (snap[metric]?.[field] ?? 0), 0);
+  }
+
+  function sumMetricCount(metric) {
+    return results.reduce((s, snap) => s + (snap[metric]?.count ?? 0), 0);
+  }
+
+  // Merge weekly chart: add sales/purchases by date key across all companies.
+  const chartMap = new Map();
+  results.forEach((snap) => {
+    (snap.weeklyChart ?? []).forEach((d) => {
+      if (!chartMap.has(d.date)) {
+        chartMap.set(d.date, { date: d.date, sales: 0, purchases: 0 });
+      }
+      const entry = chartMap.get(d.date);
+      entry.sales     += d.sales     ?? 0;
+      entry.purchases += d.purchases ?? 0;
+    });
+  });
+
+  // Merge top selling: aggregate qty + amount by item key across companies.
+  const topMap = new Map();
+  results.forEach((snap) => {
+    (snap.topSelling ?? []).forEach((item) => {
+      const key = item.itemId ?? item.itemName;
+      if (!key) return;
+      const prev = topMap.get(key) ?? { ...item, qty: 0, amount: 0 };
+      prev.qty    += item.qty    ?? 0;
+      prev.amount += item.amount ?? 0;
+      topMap.set(key, prev);
+    });
+  });
+
+  // Merge low-stock items, tagging each with its company name.
+  const lowItems = results.flatMap((snap, i) =>
+    (snap.lowStock?.items ?? []).map((it) => ({
+      ...it,
+      companyName: nameMap[companyIds[i]] ?? companyIds[i],
+    })),
+  );
+
+  return {
+    todaysSales: {
+      total:     sumMetric('todaysSales'),
+      count:     sumMetricCount('todaysSales'),
+      breakdown: breakdown('todaysSales'),
+    },
+    todaysPurchases: {
+      total:     sumMetric('todaysPurchases'),
+      count:     sumMetricCount('todaysPurchases'),
+      breakdown: breakdown('todaysPurchases'),
+    },
+    receivables: {
+      total:     sumMetric('receivables'),
+      count:     sumMetricCount('receivables'),
+      breakdown: breakdown('receivables'),
+    },
+    payables: {
+      total:     sumMetric('payables'),
+      count:     sumMetricCount('payables'),
+      breakdown: breakdown('payables'),
+    },
+    cashBank: {
+      cashTotal: results.reduce((s, snap) => s + (snap.cashBank?.cashTotal ?? 0), 0),
+      bankTotal: results.reduce((s, snap) => s + (snap.cashBank?.bankTotal ?? 0), 0),
+      accounts:  results.flatMap((snap, i) =>
+        (snap.cashBank?.accounts ?? []).map((a) => ({
+          ...a,
+          companyName: nameMap[companyIds[i]] ?? companyIds[i],
+        })),
+      ),
+    },
+    lowStock: {
+      items:      lowItems,
+      totalCount: lowItems.length,
+    },
+    topSelling: [...topMap.values()].sort((a, b) => b.qty - a.qty).slice(0, 5),
+    weeklyChart: [...chartMap.values()].sort((a, b) => a.date.localeCompare(b.date)),
+  };
+}
