@@ -32,6 +32,48 @@ export async function extractMenuFromText(menuText) {
   ]);
 }
 
+// Maps arbitrary CSV/Excel headers to our menu item fields using Gemini.
+// Returns an object like { itemName: 'Name', sellingPrice: 'Price', ... }
+// with null for fields that have no matching column.
+export async function mapCsvColumns(headers, sampleRows) {
+  if (!API_KEY) throw new Error('VITE_GEMINI_API_KEY is not set in environment variables.');
+  const prompt = `This is a menu/inventory CSV data. Map these columns to these fields:
+itemName, category, sellingPrice, description, isVeg (veg/non-veg indicator), HSNCode.
+
+Column headers: ${JSON.stringify(headers)}
+
+First few data rows (arrays matching headers above):
+${sampleRows.map((r) => JSON.stringify(r)).join('\n')}
+
+Return ONLY a JSON object mapping each target field to the source column name.
+Use null if no matching column exists. Example:
+{"itemName":"Name","category":"Category","sellingPrice":"Price","description":"Description","isVeg":"Attributes","HSNCode":"HSN_Code"}`;
+
+  const res = await fetch(`${ENDPOINT}?key=${API_KEY}`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({
+      contents:         [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 256 },
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error?.message ?? `Gemini API error ${res.status}`);
+  }
+  const data    = await res.json();
+  const raw     = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+  const cleaned = raw
+    .replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]);
+    throw new Error('Could not parse AI column mapping. Please try again.');
+  }
+}
+
 // ─── internal helpers ────────────────────────────────────────────────────────
 
 async function callGeminiAndParse(parts) {

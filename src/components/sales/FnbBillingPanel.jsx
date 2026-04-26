@@ -203,7 +203,11 @@ export default function FnbBillingPanel({ menuItems, onSubmit, submitting, error
                     }`}
                   >
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-gray-900 text-sm leading-tight truncate">{item.itemName}</p>
+                      <div className="flex items-center gap-1.5">
+                        {item.isVeg === true  && <span className="flex-shrink-0 h-2.5 w-2.5 rounded-full bg-green-500" title="Vegetarian" />}
+                        {item.isVeg === false && <span className="flex-shrink-0 h-2.5 w-2.5 rounded-full bg-red-500" title="Non-vegetarian" />}
+                        <p className="font-medium text-gray-900 text-sm leading-tight truncate">{item.itemName}</p>
+                      </div>
                       <p className="text-xs text-gray-500 mt-0.5">
                         {formatCurrency(Number(item.sellingPrice) || 0)} / {item.unit ?? 'portion'}
                       </p>

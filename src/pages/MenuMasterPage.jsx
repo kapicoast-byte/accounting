@@ -13,7 +13,7 @@ import {
   MENU_PORTION_UNITS,
 } from '../services/menuItemService';
 import { listInventoryItems } from '../services/inventoryService';
-import { extractMenuFromImage, extractMenuFromText } from '../services/geminiService';
+import { extractMenuFromImage, extractMenuFromText, mapCsvColumns } from '../services/geminiService';
 import * as XLSX from 'xlsx';
 import { formatCurrency } from '../utils/format';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -151,6 +151,14 @@ function IngredientsEditor({ ingredients, inventory, onChange }) {
   );
 }
 
+// ─── Veg / Non-veg dot indicator ─────────────────────────────────────────────
+
+function VegDot({ isVeg }) {
+  if (isVeg === true)  return <span className="inline-block flex-shrink-0 h-2.5 w-2.5 rounded-full bg-green-500" title="Vegetarian" />;
+  if (isVeg === false) return <span className="inline-block flex-shrink-0 h-2.5 w-2.5 rounded-full bg-red-500" title="Non-vegetarian" />;
+  return null;
+}
+
 // ─── Menu item form ───────────────────────────────────────────────────────────
 
 function MenuItemForm({ item, inventory, onSave, onCancel }) {
@@ -167,6 +175,8 @@ function MenuItemForm({ item, inventory, onSave, onCancel }) {
     description:  item?.description  ?? '',
     isAvailable:  item?.isAvailable  !== false,
     displayOrder: item?.displayOrder ?? 0,
+    isVeg:        item?.isVeg        ?? null,
+    HSNCode:      item?.HSNCode      ?? '',
   });
 
   const [saving, setSaving] = useState(false);
@@ -275,6 +285,18 @@ function MenuItemForm({ item, inventory, onSave, onCancel }) {
           </div>
         </div>
 
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            HSN Code <span className="font-normal text-gray-400">(optional)</span>
+          </label>
+          <input
+            className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+            placeholder="e.g. 2106"
+            value={form.HSNCode}
+            onChange={(e) => setField('HSNCode', e.target.value)}
+          />
+        </div>
+
         <div className="col-span-2">
           <label className="block text-sm font-medium text-gray-700 mb-1">
             Description <span className="font-normal text-gray-400">(optional)</span>
@@ -298,6 +320,30 @@ function MenuItemForm({ item, inventory, onSave, onCancel }) {
             </div>
             <span className="text-sm text-gray-700">Available on billing screen</span>
           </button>
+        </div>
+
+        <div className="col-span-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2">Dietary Type</label>
+          <div className="flex gap-2">
+            {[[null, 'Not Specified'], [true, 'Vegetarian'], [false, 'Non-vegetarian']].map(([val, label]) => (
+              <button
+                key={String(val)}
+                type="button"
+                onClick={() => setField('isVeg', val)}
+                className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition ${
+                  form.isVeg === val
+                    ? val === true  ? 'border-green-500 bg-green-50 text-green-700'
+                    : val === false ? 'border-red-400 bg-red-50 text-red-700'
+                    : 'border-gray-400 bg-gray-100 text-gray-700'
+                    : 'border-gray-200 text-gray-400 hover:bg-gray-50'
+                }`}
+              >
+                {val === true  && <span className="h-2 w-2 rounded-full bg-green-500" />}
+                {val === false && <span className="h-2 w-2 rounded-full bg-red-500" />}
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -384,32 +430,59 @@ function downloadTemplate() {
   XLSX.writeFile(wb, 'menu_master_template.xlsx');
 }
 
+function toTitleCase(str) {
+  return String(str ?? '').trim()
+    .replace(/\w\S*/g, (w) => w[0].toUpperCase() + w.slice(1).toLowerCase());
+}
+
+function parsePrice(raw) {
+  const s = String(raw ?? '').replace(/[₹$€£,\s]/g, '');
+  return Number(s) || 0;
+}
+
+function parseIsVeg(raw) {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const s = String(raw).toLowerCase().trim();
+  if (s.includes('non') || s.includes('egg') || s === 'n' || s === 'no' || s === 'false' || s === '0') return false;
+  if (s.includes('veg') || s === 'v' || s === 'yes' || s === 'true' || s === '1') return true;
+  return null;
+}
+
 function AiBulkUploadModal({ onClose, onSaved }) {
   const { activeCompanyId } = useApp();
-  const [tab, setTab]           = useState('image');
-  const [imgFile, setImgFile]   = useState(null);
-  const [xlsFile, setXlsFile]   = useState(null);
-  const [menuText, setMenuText] = useState('');
-  const [loading, setLoading]   = useState(false);
-  const [error, setError]       = useState(null);
-  const [preview, setPreview]   = useState(null);
-  const [saving, setSaving]     = useState(false);
-  const [savedCount, setSavedCount] = useState(null);
+  const [tab, setTab]               = useState('image');
+  const [imgFile, setImgFile]       = useState(null);
+  const [xlsFile, setXlsFile]       = useState(null);
+  const [xlsKey, setXlsKey]         = useState(0);
+  const [menuText, setMenuText]     = useState('');
+  const [loading, setLoading]       = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState('');
+  const [error, setError]           = useState(null);
+  const [preview, setPreview]       = useState(null);
+  const [saving, setSaving]         = useState(false);
+  const [saveProgress, setSaveProgress] = useState(0);
+  const [savedCount, setSavedCount]     = useState(null);
+  const [skippedCount, setSkippedCount] = useState(null);
 
   function switchTab(t) {
     setTab(t);
     setPreview(null);
     setError(null);
     setSavedCount(null);
+    setSkippedCount(null);
+    setSaveProgress(0);
   }
 
-  // ── AI extraction ─────────────────────────────────────────────────────────
+  // ── AI extraction (image / text tabs) ────────────────────────────────────
 
   async function handleAiExtract() {
     setError(null);
     setPreview(null);
     setSavedCount(null);
+    setSkippedCount(null);
+    setSaveProgress(0);
     setLoading(true);
+    setLoadingMsg('');
     try {
       const items = tab === 'image'
         ? await extractMenuFromImage(imgFile)
@@ -422,69 +495,100 @@ function AiBulkUploadModal({ onClose, onSaved }) {
     }
   }
 
-  // ── Excel parsing ─────────────────────────────────────────────────────────
+  // ── Excel upload with AI column mapping ───────────────────────────────────
 
-  function handleExcelFile(f) {
+  async function handleExcelFile(f) {
     setXlsFile(f);
     setPreview(null);
     setSavedCount(null);
+    setSkippedCount(null);
+    setSaveProgress(0);
     setError(null);
     if (!f) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const wb   = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
-        const ws   = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
 
-        // Row 0 = header; skip note rows whose first cell starts with "("
-        const dataRows = rows.slice(1).filter(
-          (r) => r.length > 0 && !String(r[0] ?? '').startsWith('('),
-        );
+    setLoading(true);
+    setLoadingMsg('Parsing file…');
+    try {
+      const buffer  = await f.arrayBuffer();
+      const wb      = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+      const ws      = wb.Sheets[wb.SheetNames[0]];
+      const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
 
-        if (dataRows.length === 0) {
-          setError('No data rows found. Download the template to see the expected format.');
-          return;
-        }
+      if (rawRows.length < 2) {
+        setError('File appears empty — no header or data rows found.');
+        return;
+      }
 
-        setPreview(dataRows.map((r, i) => {
-          const name  = String(r[0] ?? '').trim();
-          const price = Number(r[2]) || 0;
+      const headers  = rawRows[0].map(String);
+      const dataRows = rawRows.slice(1).filter((r) => r.some((c) => String(c).trim() !== ''));
+
+      if (dataRows.length === 0) {
+        setError('No data rows found in the file.');
+        return;
+      }
+
+      setLoadingMsg('Mapping columns with Gemini AI…');
+      const sampleRows = dataRows.slice(0, 5).map((r) => headers.map((_, i) => r[i] ?? ''));
+      const mapping    = await mapCsvColumns(headers, sampleRows);
+
+      function getCell(row, field) {
+        const col = mapping[field];
+        if (!col) return '';
+        const idx = headers.indexOf(col);
+        return idx >= 0 ? String(row[idx] ?? '') : '';
+      }
+
+      const items = dataRows
+        .map((row, i) => {
+          const name  = toTitleCase(getCell(row, 'itemName'));
+          const price = parsePrice(getCell(row, 'sellingPrice'));
+          if (!name || price <= 0) return null;
           return {
             _id:          i + 1,
+            _selected:    true,
             itemName:     name,
-            category:     normaliseCategoryLocal(r[1]),
+            category:     String(getCell(row, 'category')).trim() || 'Food',
             sellingPrice: price,
-            gstRate:      normaliseGstRate(r[3]),
-            description:  String(r[4] ?? '').trim(),
-            _invalid:     !name || price <= 0,
+            gstRate:      5,
+            description:  String(getCell(row, 'description')).trim(),
+            isVeg:        parseIsVeg(getCell(row, 'isVeg')),
+            HSNCode:      String(getCell(row, 'HSNCode')).trim(),
           };
-        }));
-      } catch {
-        setError('Could not parse the file. Please ensure it is a valid .xlsx or .csv file.');
+        })
+        .filter(Boolean);
+
+      if (items.length === 0) {
+        setError('No valid items found — all rows were missing item name or price.');
+        return;
       }
-    };
-    reader.onerror = () => setError('Failed to read the file.');
-    reader.readAsArrayBuffer(f);
+
+      setPreview(items);
+    } catch (err) {
+      setError(err.message ?? 'Failed to process file. Please try again.');
+    } finally {
+      setLoading(false);
+      setLoadingMsg('');
+    }
   }
 
   // ── Shared preview helpers ────────────────────────────────────────────────
 
   function patchRow(id, key, value) {
-    setPreview((prev) => prev.map((r) => {
-      if (r._id !== id) return r;
-      const updated = { ...r, [key]: value };
-      // Recompute _invalid only for rows that carry the flag (Excel rows)
-      if ('_invalid' in r) updated._invalid = !rowIsValid(updated);
-      return updated;
-    }));
+    setPreview((prev) => prev.map((r) => (r._id !== id ? r : { ...r, [key]: value })));
   }
 
   function removeRow(id) {
     setPreview((prev) => prev.filter((r) => r._id !== id));
   }
 
-  // ── Save ──────────────────────────────────────────────────────────────────
+  function toggleSelect(id) {
+    setPreview((prev) => prev.map((r) => (r._id === id ? { ...r, _selected: !r._selected } : r)));
+  }
+
+  function selectAll()   { setPreview((prev) => prev.map((r) => ({ ...r, _selected: true  }))); }
+  function deselectAll() { setPreview((prev) => prev.map((r) => ({ ...r, _selected: false }))); }
+
+  // ── Save — AI tabs ────────────────────────────────────────────────────────
 
   async function handleSaveAll() {
     const rowsToSave = (preview ?? []).filter((r) => r._invalid !== true);
@@ -500,6 +604,8 @@ function AiBulkUploadModal({ onClose, onSaved }) {
             sellingPrice: Number(row.sellingPrice) || 0,
             gstRate:      Number(row.gstRate) || 5,
             description:  row.description ?? '',
+            isVeg:        row.isVeg ?? null,
+            HSNCode:      row.HSNCode ?? '',
             ingredients:  [],
             portionSize:  1,
             unit:         'portion',
@@ -509,6 +615,7 @@ function AiBulkUploadModal({ onClose, onSaved }) {
         ),
       );
       setSavedCount(rowsToSave.length);
+      setSkippedCount(0);
       onSaved();
     } catch (err) {
       setError(err.message ?? 'Failed to save items. Please try again.');
@@ -516,12 +623,56 @@ function AiBulkUploadModal({ onClose, onSaved }) {
     }
   }
 
-  // ── Derived counts ────────────────────────────────────────────────────────
+  // ── Save — Excel tab (batch with progress) ────────────────────────────────
 
-  const validCount   = (preview ?? []).filter((r) => r._invalid !== true).length;
-  const invalidCount = (preview ?? []).filter((r) => r._invalid === true).length;
-  const isAiTab      = tab === 'image' || tab === 'text';
-  const canAiExtract = tab === 'image' ? !!imgFile : menuText.trim().length > 0;
+  async function handleSaveSelected() {
+    const rowsToSave = (preview ?? []).filter((r) => r._selected);
+    if (!rowsToSave.length) return;
+    setSaving(true);
+    setSaveProgress(0);
+    setError(null);
+
+    const CHUNK  = 20;
+    let saved    = 0;
+    let skipped  = 0;
+
+    for (let i = 0; i < rowsToSave.length; i += CHUNK) {
+      const chunk   = rowsToSave.slice(i, i + CHUNK);
+      const results = await Promise.allSettled(
+        chunk.map((row, idx) =>
+          createMenuItem(activeCompanyId, {
+            itemName:     row.itemName,
+            category:     row.category,
+            sellingPrice: Number(row.sellingPrice) || 0,
+            gstRate:      5,
+            description:  row.description ?? '',
+            isVeg:        row.isVeg ?? null,
+            HSNCode:      row.HSNCode ?? '',
+            ingredients:  [],
+            portionSize:  1,
+            unit:         'portion',
+            isAvailable:  true,
+            displayOrder: i + idx,
+          }),
+        ),
+      );
+      results.forEach((r) => (r.status === 'fulfilled' ? saved++ : skipped++));
+      setSaveProgress(Math.round(((i + chunk.length) / rowsToSave.length) * 100));
+    }
+
+    setSavedCount(saved);
+    setSkippedCount(skipped);
+    setSaving(false);
+    if (saved > 0) onSaved();
+  }
+
+  // ── Derived ───────────────────────────────────────────────────────────────
+
+  const isAiTab       = tab === 'image' || tab === 'text';
+  const canAiExtract  = tab === 'image' ? !!imgFile : menuText.trim().length > 0;
+  const validCount    = (preview ?? []).filter((r) => r._invalid !== true).length;
+  const invalidCount  = (preview ?? []).filter((r) => r._invalid === true).length;
+  const selectedCount = (preview ?? []).filter((r) => r._selected).length;
 
   return (
     <div className="space-y-5">
@@ -576,9 +727,9 @@ function AiBulkUploadModal({ onClose, onSaved }) {
         <div className="space-y-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <p className="text-sm text-gray-500 flex-1">
-              Upload an <span className="font-medium text-gray-700">.xlsx</span> or{' '}
-              <span className="font-medium text-gray-700">.csv</span> file. Required columns:{' '}
-              <span className="font-medium text-gray-700">Item Name, Category, Selling Price, GST%, Description</span>
+              Upload any <span className="font-medium text-gray-700">.xlsx</span> or{' '}
+              <span className="font-medium text-gray-700">.csv</span> file — Gemini AI will automatically
+              map your columns to our menu fields.
             </p>
             <button
               type="button"
@@ -592,21 +743,31 @@ function AiBulkUploadModal({ onClose, onSaved }) {
               Download Template
             </button>
           </div>
-          <label className="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 p-8 cursor-pointer hover:border-green-400 hover:bg-green-50 transition">
-            <svg className="h-8 w-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            <span className="text-sm text-gray-500">
-              {xlsFile ? xlsFile.name : 'Click to upload .xlsx or .csv'}
-            </span>
-            <input
-              type="file"
-              accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              className="hidden"
-              onChange={(e) => handleExcelFile(e.target.files[0] ?? null)}
-            />
-          </label>
+          {!preview && !loading && (
+            <label key={xlsKey} className="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 p-8 cursor-pointer hover:border-green-400 hover:bg-green-50 transition">
+              <svg className="h-8 w-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <span className="text-sm text-gray-500 text-center">
+                {xlsFile ? xlsFile.name : 'Click to upload .xlsx or .csv — AI will map columns automatically'}
+              </span>
+              <input
+                type="file"
+                accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                className="hidden"
+                onChange={(e) => handleExcelFile(e.target.files[0] ?? null)}
+              />
+            </label>
+          )}
+        </div>
+      )}
+
+      {/* Loading indicator */}
+      {loading && (
+        <div className="flex items-center gap-3 rounded-lg bg-indigo-50 border border-indigo-200 px-4 py-3">
+          <LoadingSpinner size="sm" />
+          <p className="text-sm text-indigo-700">{loadingMsg || 'Processing…'}</p>
         </div>
       )}
 
@@ -632,8 +793,8 @@ function AiBulkUploadModal({ onClose, onSaved }) {
         </p>
       )}
 
-      {/* Preview table */}
-      {preview !== null && preview.length > 0 && savedCount === null && (
+      {/* ── Preview table — AI tabs ── */}
+      {isAiTab && preview !== null && preview.length > 0 && savedCount === null && (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-3">
             <p className="text-sm font-medium text-gray-700">
@@ -699,7 +860,7 @@ function AiBulkUploadModal({ onClose, onSaved }) {
           <div className="flex items-center justify-between pt-1">
             <button type="button" onClick={() => setPreview(null)}
               className="text-sm text-gray-500 hover:text-gray-700 transition">
-              &larr; {tab === 'excel' ? 'Re-upload' : 'Re-extract'}
+              &larr; Re-extract
             </button>
             <button
               type="button"
@@ -718,12 +879,125 @@ function AiBulkUploadModal({ onClose, onSaved }) {
         </div>
       )}
 
+      {/* ── Preview table — Excel tab ── */}
+      {tab === 'excel' && preview !== null && preview.length > 0 && savedCount === null && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-medium text-gray-700">
+              {preview.length} item{preview.length !== 1 ? 's' : ''} found,{' '}
+              <span className="text-blue-600">{selectedCount} selected</span>
+            </p>
+            <div className="flex gap-2 text-xs">
+              <button type="button" onClick={selectAll}
+                className="text-blue-600 hover:underline">Select All</button>
+              <span className="text-gray-300">|</span>
+              <button type="button" onClick={deselectAll}
+                className="text-gray-500 hover:underline">Deselect All</button>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-gray-200 overflow-hidden">
+            <div className="grid grid-cols-[20px_2fr_1.5fr_72px_80px_90px_28px] gap-2 bg-gray-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+              <div />
+              <div>Item Name</div>
+              <div>Category</div>
+              <div>Price (₹)</div>
+              <div>Veg/Non-Veg</div>
+              <div>HSN Code</div>
+              <div />
+            </div>
+            <div className="divide-y divide-gray-100 max-h-72 overflow-y-auto">
+              {preview.map((row) => (
+                <div key={row._id}
+                  className={`grid grid-cols-[20px_2fr_1.5fr_72px_80px_90px_28px] gap-2 items-center px-3 py-2 transition ${!row._selected ? 'opacity-50' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={row._selected}
+                    onChange={() => toggleSelect(row._id)}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600"
+                  />
+                  <input
+                    className="rounded border border-gray-300 px-2 py-1 text-sm w-full"
+                    value={row.itemName}
+                    onChange={(e) => patchRow(row._id, 'itemName', e.target.value)}
+                  />
+                  <input
+                    className="rounded border border-gray-300 px-2 py-1 text-sm w-full"
+                    value={row.category}
+                    onChange={(e) => patchRow(row._id, 'category', e.target.value)}
+                  />
+                  <input
+                    type="number" min="0" step="0.01"
+                    className="rounded border border-gray-300 px-2 py-1 text-sm w-full"
+                    value={row.sellingPrice}
+                    onChange={(e) => patchRow(row._id, 'sellingPrice', e.target.value)}
+                  />
+                  <select
+                    className="rounded border border-gray-200 px-1 py-1 text-xs w-full"
+                    value={row.isVeg === null ? '' : String(row.isVeg)}
+                    onChange={(e) => patchRow(row._id, 'isVeg', e.target.value === '' ? null : e.target.value === 'true')}
+                  >
+                    <option value="">—</option>
+                    <option value="true">Veg</option>
+                    <option value="false">Non-veg</option>
+                  </select>
+                  <input
+                    className="rounded border border-gray-200 px-2 py-1 text-xs w-full"
+                    placeholder="e.g. 2106"
+                    value={row.HSNCode}
+                    onChange={(e) => patchRow(row._id, 'HSNCode', e.target.value)}
+                  />
+                  <button type="button" onClick={() => removeRow(row._id)}
+                    className="text-gray-400 hover:text-red-500 text-xl leading-none flex items-center justify-center">
+                    &times;
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {saving && (
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs text-gray-500">
+                <span>Saving items…</span>
+                <span>{saveProgress}%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div className="bg-blue-600 h-2 rounded-full transition-all" style={{ width: `${saveProgress}%` }} />
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between pt-1">
+            <button type="button"
+              onClick={() => { setPreview(null); setXlsFile(null); setXlsKey((k) => k + 1); }}
+              className="text-sm text-gray-500 hover:text-gray-700 transition">
+              &larr; Re-upload
+            </button>
+            <button
+              type="button"
+              disabled={saving || selectedCount === 0}
+              onClick={handleSaveSelected}
+              className="flex items-center gap-2 rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50 transition"
+            >
+              {saving && <LoadingSpinner size="sm" />}
+              {saving ? `Saving… ${saveProgress}%` : `Save Selected (${selectedCount})`}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Success */}
       {savedCount !== null && (
         <div className="rounded-lg bg-green-50 border border-green-200 p-6 text-center space-y-3">
           <p className="text-green-700 font-bold text-xl">
-            {savedCount} item{savedCount !== 1 ? 's' : ''} added successfully!
+            {savedCount} item{savedCount !== 1 ? 's' : ''} saved successfully!
           </p>
+          {skippedCount > 0 && (
+            <p className="text-sm text-amber-600">
+              {skippedCount} item{skippedCount !== 1 ? 's' : ''} skipped due to errors.
+            </p>
+          )}
           <p className="text-sm text-green-600">You can edit each item individually from the menu list.</p>
           <button type="button" onClick={onClose}
             className="rounded-md bg-green-600 px-5 py-2 text-sm font-medium text-white hover:bg-green-700">
@@ -899,6 +1173,7 @@ export default function MenuMasterPage() {
                   {/* Name + meta */}
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
+                      <VegDot isVeg={item.isVeg} />
                       <p className="font-medium text-gray-900 truncate">{item.itemName}</p>
                       {lowStock && (
                         <span title="An ingredient is below reorder level" className="flex-shrink-0 text-amber-500">
