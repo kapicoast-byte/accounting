@@ -124,6 +124,41 @@ Return ONLY a JSON object mapping each field to the best matching column name, o
 {"itemName":null,"quantity":null,"unitPrice":null,"totalAmount":null,"date":null,"paymentMode":null}`;
 }
 
+function buildPdfSalesPrompt() {
+  return `This is a multi-page restaurant POS sales report PDF.
+Columns in order: Taxable, Restaurant, Category, Item, Qty, My Amount, Discount, Tax, Gross Sales.
+
+Extract every ITEM row. Skip rows that are totals or statistics (labelled "Total", "Grand Total", "Min", "Max", "Avg") and rows with a blank Item name.
+
+For each valid item row return exactly:
+- itemName: value from the "Item" column
+- category: value from "Category" (use "Food" if blank)
+- quantity: number from "Qty" (no commas)
+- myAmount: number from "My Amount" (no commas or currency symbols)
+- tax: number from "Tax" (0 if blank)
+- grossSales: number from "Gross Sales" (no commas or currency symbols)
+
+Also find the date range in the report header (e.g. "01/04/2026 to 26/04/2026") and return it as dateFrom and dateTo in YYYY-MM-DD format. Use empty strings if not found.
+
+Return ONLY this exact JSON structure (no markdown, no explanation):
+{"dateFrom":"","dateTo":"","items":[{"itemName":"Filter Coffee","category":"Traditional Coffee","quantity":1604,"myAmount":61112.39,"tax":3055.42,"grossSales":64167.81}]}`;
+}
+
+function toBase64(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload  = (e) => resolve(e.target.result.split(',')[1]);
+    fr.onerror = reject;
+    fr.readAsDataURL(file);
+  });
+}
+
+function formatISODate(d) {
+  if (!d) return '';
+  const dt = new Date(d + 'T12:00:00');
+  return isNaN(dt.getTime()) ? d : dt.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
 function normalisePaymentMode(raw) {
   if (!raw) return 'Cash';
   const s = String(raw).toLowerCase();
@@ -180,6 +215,10 @@ function ImportModal({ open, onClose, companyId, onImported }) {
   const [colMapping,    setColMapping]    = useState({});
   const [showColMapper, setShowColMapper] = useState(false);
   const [retryMsg,      setRetryMsg]      = useState('');
+  const [pdfDateStep,   setPdfDateStep]   = useState(false);
+  const [pdfDetected,   setPdfDetected]   = useState('');
+  const [importDate,    setImportDate]    = useState('');
+  const [pendingRows,   setPendingRows]   = useState([]);
 
   useEffect(() => {
     if (open) return;
@@ -188,6 +227,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     setExtracting(false); setSaving(false); setTab('upload');
     setCsvHeaders([]); setCsvRawRows([]); setColMapping({}); setShowColMapper(false);
     setRetryMsg('');
+    setPdfDateStep(false); setPdfDetected(''); setImportDate(''); setPendingRows([]);
   }, [open]);
 
   function updateRow(id, field, val) {
@@ -219,23 +259,84 @@ function ImportModal({ open, onClose, companyId, onImported }) {
 
   async function handleExtractFile() {
     if (!file) return;
-    const isCsvOrText = /\.(csv|txt)$/i.test(file.name) || file.type.startsWith('text/');
 
-    if (!isCsvOrText) {
-      const base64 = await new Promise((res, rej) => {
-        const fr = new FileReader();
-        fr.onload  = (e) => res(e.target.result.split(',')[1]);
-        fr.onerror = rej;
-        fr.readAsDataURL(file);
-      });
-      const today = new Date().toISOString().slice(0, 10);
-      const mime = file.type || 'application/octet-stream';
+    const isPdf     = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+    const isCsvText = /\.(csv|txt)$/i.test(file.name) || file.type.startsWith('text/');
+
+    // ── PDF path: Vision API + restaurant-report-specific prompt + date step ──
+    if (isPdf) {
+      setExtracting(true);
+      setExtractErr('');
+      setRows([]);
+      try {
+        const base64 = await toBase64(file);
+        console.log(`PDF → Gemini [${(base64.length * 0.75 / 1024).toFixed(1)} KB]`);
+        const raw = await geminiExtract(
+          [
+            { inlineData: { mimeType: 'application/pdf', data: base64 } },
+            { text: buildPdfSalesPrompt() },
+          ],
+          setRetryMsg,
+        );
+        console.log('EXACT RAW RESPONSE:', JSON.stringify(raw));
+
+        const objMatch = raw.match(/\{[\s\S]*\}/);
+        if (!objMatch) throw new Error('AI could not read this PDF. Please check the file and try again.');
+        let result;
+        try { result = JSON.parse(objMatch[0]); }
+        catch { throw new Error('AI could not read this PDF. Please check the file and try again.'); }
+
+        const items = Array.isArray(result.items) ? result.items : [];
+        if (!items.length) throw new Error('No item rows found in this PDF. Please check the file and try again.');
+
+        const today   = new Date().toISOString().slice(0, 10);
+        const pending = items
+          .filter((it) => it.itemName)
+          .map((it) => {
+            const qty       = Number(it.quantity)  || 1;
+            const myAmount  = Number(it.myAmount)  || 0;
+            const tax       = Number(it.tax)       || 0;
+            const unitPrice = qty > 0 ? myAmount / qty : 0;
+            const gstRate   = myAmount > 0 ? (tax / myAmount * 100) : 0;
+            return {
+              id:           Math.random().toString(36).slice(2),
+              date:         today,
+              customerName: 'Walk-in',
+              lineItems:    [{ itemName: String(it.itemName).trim(), quantity: qty, unitPrice, gstRate }],
+              paymentMode:  'Cash',
+              notes:        String(it.category || '').trim(),
+            };
+          });
+        if (!pending.length) throw new Error('No valid items could be extracted. Please check the file.');
+
+        setPendingRows(pending);
+        setPdfDetected(
+          result.dateFrom && result.dateTo
+            ? `${formatISODate(result.dateFrom)} to ${formatISODate(result.dateTo)}`
+            : formatISODate(result.dateFrom || result.dateTo),
+        );
+        setImportDate(result.dateTo || result.dateFrom || today);
+        setPdfDateStep(true);
+      } catch (e) {
+        setExtractErr(e.message ?? 'PDF extraction failed.');
+      } finally {
+        setExtracting(false);
+        setRetryMsg('');
+      }
+      return;
+    }
+
+    // ── Image path (JPG, PNG, WebP) ───────────────────────────────────────────
+    if (!isCsvText) {
+      const base64 = await toBase64(file);
+      const today  = new Date().toISOString().slice(0, 10);
+      const mime   = file.type || 'application/octet-stream';
       console.log('Data being sent to Gemini:', `[base64 ${mime} ${(base64.length * 0.75 / 1024).toFixed(1)} KB]`);
       await doExtract([{ text: buildPrompt(today) }, { inlineData: { mimeType: mime, data: base64 } }]);
       return;
     }
 
-    // CSV: parse all rows locally first, then ask AI to map headers only (1 call total).
+    // ── CSV path: parse all rows locally, ask AI to map headers only (1 call) ──
     const content = await file.text();
     const parsed  = Papa.parse(content, { header: true, skipEmptyLines: true });
 
@@ -272,7 +373,6 @@ function ImportModal({ open, onClose, companyId, onImported }) {
       const objMatch = raw.match(/\{[\s\S]*\}/);
       if (objMatch) { try { mapping = JSON.parse(objMatch[0]); } catch { /* fall through */ } }
 
-      // Fill any unmapped fields with keyword guesses.
       if (!mapping.itemName)    mapping.itemName    = autoGuess(['item', 'name', 'product', 'dish', 'menu']);
       if (!mapping.quantity)    mapping.quantity    = autoGuess(['qty', 'quantity', 'count', 'units']);
       if (!mapping.unitPrice)   mapping.unitPrice   = autoGuess(['price', 'rate', 'unit']);
@@ -331,6 +431,13 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     setShowColMapper(false);
     setCsvRawRows([]);
     setCsvHeaders([]);
+  }
+
+  function confirmPdfDate() {
+    const date = importDate || new Date().toISOString().slice(0, 10);
+    setRows(pendingRows.map((r) => ({ ...r, date })));
+    setPdfDateStep(false);
+    setPendingRows([]);
   }
 
   async function handleExtractPaste() {
@@ -408,6 +515,39 @@ function ImportModal({ open, onClose, companyId, onImported }) {
             </div>
           )}
 
+          {/* PDF date confirmation — shown after PDF extraction, before preview */}
+          {pdfDateStep && (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
+                {pdfDetected ? (
+                  <p className="text-sm font-semibold text-blue-800">
+                    Report covers: <span className="font-bold">{pdfDetected}</span>
+                  </p>
+                ) : (
+                  <p className="text-sm font-semibold text-blue-800">No date range detected in the report.</p>
+                )}
+                <p className="mt-1 text-xs text-blue-600">
+                  {pendingRows.length} items extracted — confirm or change the date to assign to all imported sales. You can adjust per row after.
+                </p>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-700">Import date</label>
+                <input type="date" value={importDate} onChange={(e) => setImportDate(e.target.value)}
+                  className="rounded-md border border-gray-300 px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div className="flex gap-3">
+                <button type="button" onClick={confirmPdfDate} disabled={!importDate}
+                  className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40 transition">
+                  Preview {pendingRows.length} Items
+                </button>
+                <button type="button" onClick={() => { setPdfDateStep(false); setPendingRows([]); }}
+                  className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Column mapper — shown when AI fails for CSV */}
           {showColMapper && rows.length === 0 && savedCount === null && (
             <div className="space-y-4">
@@ -452,7 +592,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
           )}
 
           {/* Input tabs — only shown before extraction */}
-          {!showColMapper && rows.length === 0 && savedCount === null && (
+          {!showColMapper && !pdfDateStep && rows.length === 0 && savedCount === null && (
             <>
               <div className="flex border-b border-gray-200">
                 {['upload', 'paste'].map((t) => (
