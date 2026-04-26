@@ -92,7 +92,9 @@ async function geminiExtract(parts) {
     throw new Error(body?.error?.message ?? `Gemini error ${res.status}`);
   }
   const data = await res.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+  const rawResponse = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+  console.log('Raw Gemini response:', rawResponse);
+  return rawResponse;
 }
 
 function buildPrompt(today) {
@@ -104,6 +106,17 @@ Return a JSON array. Each element must have:
 - paymentMode: one of "Cash","Card","UPI","Credit" (use "Cash" if unknown)
 - notes: string (use "" if none)
 Return ONLY a valid JSON array. No markdown, no explanation, no code blocks. Just raw JSON starting with [ and ending with ]`;
+}
+
+function buildCsvPrompt(csvText) {
+  const lines = csvText.split('\n').slice(0, 100).join('\n');
+  return `Extract sales data from this CSV/Excel content and return a JSON array.
+Each object must have: itemName, quantity, unitPrice, totalAmount, date, paymentMode.
+If a field is missing use null.
+Return ONLY the JSON array starting with [ nothing else.
+
+Data:
+${lines}`;
 }
 
 function normaliseRows(arr, today) {
@@ -154,9 +167,11 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     try {
       const today = new Date().toISOString().slice(0, 10);
       const raw = await geminiExtract(parts);
+      const cleanedResponse = cleanJSON(raw);
+      console.log('Cleaned response:', cleanedResponse);
       let arr;
       try {
-        arr = JSON.parse(cleanJSON(raw));
+        arr = JSON.parse(cleanedResponse);
       } catch {
         throw new Error('AI could not read this file format. Please check the file and try again.');
       }
@@ -171,12 +186,13 @@ function ImportModal({ open, onClose, companyId, onImported }) {
 
   async function handleExtractFile() {
     if (!file) return;
-    const today = new Date().toISOString().slice(0, 10);
-    const prompt = buildPrompt(today);
-    const isText = /\.(csv|txt)$/i.test(file.name) || file.type.startsWith('text/');
-    if (isText) {
+    const fileType = file.type || file.name.split('.').pop();
+    console.log('File type:', fileType);
+    const isCsvOrText = /\.(csv|txt)$/i.test(file.name) || file.type.startsWith('text/');
+    if (isCsvOrText) {
       const content = await file.text();
-      await doExtract([{ text: prompt + '\n\n' + content }]);
+      console.log('Data being sent to Gemini:', content.substring(0, 500));
+      await doExtract([{ text: buildCsvPrompt(content) }]);
     } else {
       const base64 = await new Promise((res, rej) => {
         const fr = new FileReader();
@@ -184,14 +200,17 @@ function ImportModal({ open, onClose, companyId, onImported }) {
         fr.onerror = rej;
         fr.readAsDataURL(file);
       });
+      const today = new Date().toISOString().slice(0, 10);
       const mime = file.type || 'application/octet-stream';
-      await doExtract([{ text: prompt }, { inlineData: { mimeType: mime, data: base64 } }]);
+      console.log('Data being sent to Gemini:', `[base64 ${mime} ${(base64.length * 0.75 / 1024).toFixed(1)} KB]`);
+      await doExtract([{ text: buildPrompt(today) }, { inlineData: { mimeType: mime, data: base64 } }]);
     }
   }
 
   async function handleExtractPaste() {
     if (!paste.trim()) return;
     const today = new Date().toISOString().slice(0, 10);
+    console.log('Data being sent to Gemini:', paste.substring(0, 500));
     await doExtract([{ text: buildPrompt(today) + '\n\n' + paste }]);
   }
 
