@@ -186,6 +186,7 @@ export default function CompanyProfilePage() {
       taxSystem:          activeCompany.taxSystem ?? cc?.taxSystem ?? 'GST_IN',
       currencyCode:       activeCompany.currencyCode ?? cc?.currency ?? 'INR',
       customTaxRates:     activeCompany.customTaxRates ?? [],
+      salesEntryMode:     activeCompany.salesEntryMode ?? 'pos',
     });
     setLogoUrl(activeCompany.logoUrl ?? '');
   }, [activeCompany]);
@@ -656,6 +657,30 @@ export default function CompanyProfilePage() {
               <p className="text-xs text-gray-400">Enter percentage values, e.g. 0, 7, 13 for 0%, 7%, 13%</p>
             </div>
           )}
+
+          {/* Sales entry mode */}
+          <div className="flex flex-col gap-1">
+            <label htmlFor="salesEntryMode" className="text-sm font-medium text-gray-700">Sales entry mode</label>
+            {isAdmin ? (
+              <select
+                id="salesEntryMode"
+                name="salesEntryMode"
+                value={form.salesEntryMode}
+                onChange={handleChange}
+                disabled={saving}
+                className="rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
+              >
+                {SALES_ENTRY_MODES.map((m) => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
+            ) : (
+              <p className="text-sm text-gray-700 py-2">
+                {SALES_ENTRY_MODES.find((m) => m.value === form.salesEntryMode)?.label ?? form.salesEntryMode}
+              </p>
+            )}
+            <p className="text-xs text-gray-400">Controls how sales are entered on the Sales page.</p>
+          </div>
 
           {/* Save feedback */}
           {saveError   && <p className="text-sm text-red-600">{saveError}</p>}

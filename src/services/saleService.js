@@ -65,7 +65,7 @@ function formatInvoiceNumber(year, count) {
 
 // ─── create sale (transaction) ───────────────────────────────────────────────
 
-export async function createSale(companyId, { customer, lineItems, discountType, discountValue, paymentMode, date, dueDate, notes, tableNumber, orderType }) {
+export async function createSale(companyId, { customer, lineItems, discountType, discountValue, paymentMode, date, dueDate, notes, tableNumber, orderType, entrySource = 'pos' }) {
   // Direct inventory deductions (standard sales — itemId is a real inventory doc)
   const inventoryLines = lineItems.filter((l) => l.itemId && l.itemId !== 'custom' && !l.ingredientDeductions?.length);
 
@@ -183,6 +183,7 @@ export async function createSale(companyId, { customer, lineItems, discountType,
       notes:       notes ?? '',
       tableNumber: tableNumber ?? null,
       orderType:   orderType   ?? null,
+      entrySource: entrySource ?? 'pos',
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };

@@ -103,6 +103,7 @@ export function AppProvider({ children }) {
 
   const activeCompany  = companies.find((c) => c.companyId === activeCompanyId) ?? null;
   const businessType   = activeCompany?.businessType ?? '';
+  const salesEntryMode = activeCompany?.salesEntryMode ?? 'POS';
 
   const subsidiaryIds = useMemo(
     () => companies.filter((c) => c.parentCompanyId === activeCompanyId).map((c) => c.companyId),
@@ -157,7 +158,6 @@ export function AppProvider({ children }) {
     activeCompany,
     activeCompanyId,
     businessType,
-    salesEntryMode: activeCompany?.salesEntryMode ?? 'POS',
     userRole,
     authLoading,
     companiesLoading,
@@ -179,6 +179,8 @@ export function AppProvider({ children }) {
     tabB:           taxConfig.tabB,
     splitMode:      taxConfig.splitMode,
     currencyCode:   taxConfig.currencyCode,
+    // Sales
+    salesEntryMode,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
