@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import Papa from 'papaparse';
 import { useApp } from '../context/AppContext';
 import { listSales, createSale, SALE_STATUS, PAYMENT_MODES } from '../services/saleService';
 import { BUSINESS_TYPES } from '../services/companyService';
@@ -63,19 +64,6 @@ function fmtDate(ts) {
 
 // ── Gemini AI extraction ───────────────────────────────────────────────────────
 
-function cleanJSON(text) {
-  text = text.replace(/```json/gi, '').replace(/```/g, '');
-  const firstBracket = Math.min(
-    text.indexOf('[') === -1 ? Infinity : text.indexOf('['),
-    text.indexOf('{') === -1 ? Infinity : text.indexOf('{'),
-  );
-  if (firstBracket === Infinity) throw new Error('AI could not read this file format. Please check the file and try again.');
-  text = text.substring(firstBracket);
-  const lastBracket = Math.max(text.lastIndexOf(']'), text.lastIndexOf('}'));
-  if (lastBracket === -1) throw new Error('AI could not read this file format. Please check the file and try again.');
-  return text.substring(0, lastBracket + 1).trim();
-}
-
 async function geminiExtract(parts) {
   const key = import.meta.env.VITE_GEMINI_API_KEY;
   if (!key) throw new Error('Gemini API key not configured (VITE_GEMINI_API_KEY).');
@@ -119,20 +107,42 @@ Data:
 ${lines}`;
 }
 
+function normalisePaymentMode(raw) {
+  if (!raw) return 'Cash';
+  const s = String(raw).toLowerCase();
+  if (s.includes('card') || s.includes('credit') || s.includes('debit')) return 'Card';
+  if (s.includes('upi') || s.includes('gpay') || s.includes('paytm') || s.includes('phone') || s.includes('online')) return 'UPI';
+  return 'Cash';
+}
+
 function normaliseRows(arr, today) {
-  return arr.map((item) => ({
-    id:           Math.random().toString(36).slice(2),
-    date:         item.date || today,
-    customerName: item.customerName || 'Walk-in',
-    lineItems:    (item.lineItems || []).map((l) => ({
-      itemName:  l.itemName  || 'Item',
-      quantity:  Number(l.quantity)  || 1,
-      unitPrice: Number(l.unitPrice) || 0,
-      gstRate:   Number(l.gstRate)   || 0,
-    })),
-    paymentMode: PAYMENT_MODES.includes(item.paymentMode) ? item.paymentMode : 'Cash',
-    notes:       item.notes || '',
-  }));
+  return arr.map((item) => {
+    if (!item.lineItems && item.itemName) {
+      const qty       = Number(item.quantity)  || 1;
+      const unitPrice = Number(item.unitPrice) || 0;
+      return {
+        id:           Math.random().toString(36).slice(2),
+        date:         item.date || today,
+        customerName: item.customerName || 'Walk-in',
+        lineItems:    [{ itemName: String(item.itemName).trim() || 'Item', quantity: qty, unitPrice, gstRate: 0 }],
+        paymentMode:  normalisePaymentMode(item.paymentMode),
+        notes:        item.notes || '',
+      };
+    }
+    return {
+      id:           Math.random().toString(36).slice(2),
+      date:         item.date || today,
+      customerName: item.customerName || 'Walk-in',
+      lineItems:    (item.lineItems || []).map((l) => ({
+        itemName:  l.itemName  || 'Item',
+        quantity:  Number(l.quantity)  || 1,
+        unitPrice: Number(l.unitPrice) || 0,
+        gstRate:   Number(l.gstRate)   || 0,
+      })),
+      paymentMode: PAYMENT_MODES.includes(item.paymentMode) ? item.paymentMode : 'Cash',
+      notes:       item.notes || '',
+    };
+  });
 }
 
 // ── Import Modal ───────────────────────────────────────────────────────────────
@@ -148,12 +158,17 @@ function ImportModal({ open, onClose, companyId, onImported }) {
   const [saveErr,    setSaveErr]    = useState('');
   const [savedCount, setSavedCount] = useState(null);
   const fileRef = useRef(null);
+  const [csvHeaders,    setCsvHeaders]    = useState([]);
+  const [csvRawRows,    setCsvRawRows]    = useState([]);
+  const [colMapping,    setColMapping]    = useState({});
+  const [showColMapper, setShowColMapper] = useState(false);
 
   useEffect(() => {
     if (open) return;
     setFile(null); setPaste(''); setRows([]);
     setExtractErr(''); setSaveErr(''); setSavedCount(null);
     setExtracting(false); setSaving(false); setTab('upload');
+    setCsvHeaders([]); setCsvRawRows([]); setColMapping({}); setShowColMapper(false);
   }, [open]);
 
   function updateRow(id, field, val) {
@@ -167,14 +182,12 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     try {
       const today = new Date().toISOString().slice(0, 10);
       const raw = await geminiExtract(parts);
-      const cleanedResponse = cleanJSON(raw);
-      console.log('Cleaned response:', cleanedResponse);
+      console.log('EXACT RAW RESPONSE:', JSON.stringify(raw));
+      const match = raw.match(/\[[\s\S]*\]/);
+      if (!match) throw new Error('AI could not read this file format. Please check the file and try again.');
       let arr;
-      try {
-        arr = JSON.parse(cleanedResponse);
-      } catch {
-        throw new Error('AI could not read this file format. Please check the file and try again.');
-      }
+      try { arr = JSON.parse(match[0]); }
+      catch { throw new Error('AI could not read this file format. Please check the file and try again.'); }
       if (!Array.isArray(arr)) throw new Error('AI could not read this file format. Please check the file and try again.');
       setRows(normaliseRows(arr, today));
     } catch (e) {
@@ -184,16 +197,32 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     }
   }
 
+  function triggerPapaFallback(csvText) {
+    const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+    if (parsed.data.length > 0 && Object.keys(parsed.data[0]).length > 0) {
+      const headers = Object.keys(parsed.data[0]);
+      setCsvHeaders(headers);
+      setCsvRawRows(parsed.data);
+      const find = (kws) => headers.find((h) => kws.some((k) => h.toLowerCase().includes(k))) ?? '';
+      setColMapping({
+        itemName:    find(['item', 'name', 'product', 'dish', 'menu']),
+        quantity:    find(['qty', 'quantity', 'count', 'units']),
+        unitPrice:   find(['price', 'rate', 'unit']),
+        totalAmount: find(['total', 'net', 'gross', 'amount']),
+        date:        find(['date', 'time', 'day']),
+        paymentMode: find(['payment', 'mode', 'method']),
+      });
+      setShowColMapper(true);
+    } else {
+      setExtractErr('AI extraction failed and the file could not be parsed. Please check the format.');
+    }
+  }
+
   async function handleExtractFile() {
     if (!file) return;
-    const fileType = file.type || file.name.split('.').pop();
-    console.log('File type:', fileType);
     const isCsvOrText = /\.(csv|txt)$/i.test(file.name) || file.type.startsWith('text/');
-    if (isCsvOrText) {
-      const content = await file.text();
-      console.log('Data being sent to Gemini:', content.substring(0, 500));
-      await doExtract([{ text: buildCsvPrompt(content) }]);
-    } else {
+
+    if (!isCsvOrText) {
       const base64 = await new Promise((res, rej) => {
         const fr = new FileReader();
         fr.onload  = (e) => res(e.target.result.split(',')[1]);
@@ -204,7 +233,80 @@ function ImportModal({ open, onClose, companyId, onImported }) {
       const mime = file.type || 'application/octet-stream';
       console.log('Data being sent to Gemini:', `[base64 ${mime} ${(base64.length * 0.75 / 1024).toFixed(1)} KB]`);
       await doExtract([{ text: buildPrompt(today) }, { inlineData: { mimeType: mime, data: base64 } }]);
+      return;
     }
+
+    const content = await file.text();
+    const lines = content.split('\n').filter((l) => l.trim());
+    if (lines.length < 2) { setExtractErr('CSV file appears to be empty.'); return; }
+
+    const header = lines[0];
+    const dataLines = lines.slice(1);
+    const CHUNK = 50;
+
+    setExtracting(true);
+    setExtractErr('');
+    setRows([]);
+
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const allResults = [];
+      let anyChunkFailed = false;
+
+      for (let i = 0; i < dataLines.length; i += CHUNK) {
+        const chunk = dataLines.slice(i, i + CHUNK);
+        const chunkText = [header, ...chunk].join('\n');
+        console.log(`CSV chunk ${Math.floor(i / CHUNK) + 1}/${Math.ceil(dataLines.length / CHUNK)}`);
+        try {
+          const raw = await geminiExtract([{ text: buildCsvPrompt(chunkText) }]);
+          console.log('EXACT RAW RESPONSE:', JSON.stringify(raw));
+          const m = raw.match(/\[[\s\S]*\]/);
+          if (m) {
+            const parsed = JSON.parse(m[0]);
+            if (Array.isArray(parsed)) allResults.push(...parsed);
+            else anyChunkFailed = true;
+          } else {
+            anyChunkFailed = true;
+          }
+        } catch {
+          anyChunkFailed = true;
+        }
+      }
+
+      if (allResults.length > 0) {
+        setRows(normaliseRows(allResults, today));
+        if (anyChunkFailed) setExtractErr('Some rows could not be extracted. Showing partial results.');
+      } else {
+        triggerPapaFallback(content);
+      }
+    } catch {
+      triggerPapaFallback(content);
+    } finally {
+      setExtracting(false);
+    }
+  }
+
+  function applyColumnMapping() {
+    if (!colMapping.itemName) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const mapped = csvRawRows
+      .filter((row) => row[colMapping.itemName])
+      .map((row) => {
+        const qty       = Number(row[colMapping.quantity])  || 1;
+        const unitPrice = Number(row[colMapping.unitPrice]) || 0;
+        return {
+          id:           Math.random().toString(36).slice(2),
+          date:         (colMapping.date && row[colMapping.date]) || today,
+          customerName: 'Walk-in',
+          lineItems:    [{ itemName: String(row[colMapping.itemName] ?? '').trim() || 'Item', quantity: qty, unitPrice, gstRate: 0 }],
+          paymentMode:  normalisePaymentMode((colMapping.paymentMode && row[colMapping.paymentMode]) || ''),
+          notes:        '',
+        };
+      });
+    setRows(mapped);
+    setShowColMapper(false);
+    setCsvRawRows([]);
+    setCsvHeaders([]);
   }
 
   async function handleExtractPaste() {
@@ -282,8 +384,51 @@ function ImportModal({ open, onClose, companyId, onImported }) {
             </div>
           )}
 
+          {/* Column mapper — shown when AI fails for CSV */}
+          {showColMapper && rows.length === 0 && savedCount === null && (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                AI couldn't auto-parse this file. Please map the columns manually below.
+              </div>
+              <p className="text-sm text-gray-600">{csvRawRows.length} rows detected — map your CSV columns to the required fields:</p>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { key: 'itemName',    label: 'Item Name *' },
+                  { key: 'quantity',    label: 'Quantity' },
+                  { key: 'unitPrice',   label: 'Unit Price' },
+                  { key: 'totalAmount', label: 'Total Amount' },
+                  { key: 'date',        label: 'Date' },
+                  { key: 'paymentMode', label: 'Payment Mode' },
+                ].map(({ key, label }) => (
+                  <div key={key}>
+                    <label className="mb-1 block text-xs font-medium text-gray-700">{label}</label>
+                    <select
+                      value={colMapping[key] ?? ''}
+                      onChange={(e) => setColMapping((p) => ({ ...p, [key]: e.target.value }))}
+                      className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-blue-500"
+                    >
+                      <option value="">— skip —</option>
+                      {csvHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-3">
+                <button type="button" onClick={applyColumnMapping} disabled={!colMapping.itemName}
+                  className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40 transition">
+                  Import {csvRawRows.length} Rows
+                </button>
+                <button type="button"
+                  onClick={() => { setShowColMapper(false); setCsvHeaders([]); setCsvRawRows([]); }}
+                  className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Input tabs — only shown before extraction */}
-          {rows.length === 0 && savedCount === null && (
+          {!showColMapper && rows.length === 0 && savedCount === null && (
             <>
               <div className="flex border-b border-gray-200">
                 {['upload', 'paste'].map((t) => (
