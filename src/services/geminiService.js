@@ -14,6 +14,27 @@ function cleanJSON(text) {
   return text.substring(0, lastBracket + 1).trim();
 }
 
+// Shared fetch helper — retries automatically on 429 / Resource exhausted.
+async function geminiPost(body, retries = 3, delayMs = 10000) {
+  if (!API_KEY) throw new Error('VITE_GEMINI_API_KEY is not set in environment variables.');
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const res = await fetch(`${ENDPOINT}?key=${API_KEY}`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+    }
+    const errBody = await res.json().catch(() => ({}));
+    const msg     = errBody.error?.message ?? `Gemini API error ${res.status}`;
+    const is429   = res.status === 429 || msg.includes('Resource exhausted');
+    if (!is429 || attempt >= retries - 1) throw new Error(msg);
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+}
+
 const EXTRACT_PROMPT = `Extract all menu items from this content.
 For each item return EXACTLY these fields:
 - itemName: the name of the dish or drink
@@ -62,20 +83,10 @@ Return ONLY a JSON object mapping each target field to the source column name.
 Use null if no matching column exists. Example:
 {"itemName":"Name","category":"Category","sellingPrice":"Price","description":"Description","isVeg":"Attributes","HSNCode":"HSN_Code"}`;
 
-  const res = await fetch(`${ENDPOINT}?key=${API_KEY}`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({
-      contents:         [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 256 },
-    }),
+  const raw = await geminiPost({
+    contents:         [{ parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0.1, maxOutputTokens: 256 },
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error?.message ?? `Gemini API error ${res.status}`);
-  }
-  const data = await res.json();
-  const raw  = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
   try {
     return JSON.parse(cleanJSON(raw));
   } catch {
@@ -124,20 +135,10 @@ itemName, category, quantity, unitPrice, totalAmount, date, paymentMode, gstAmou
 
 Example: {"itemName":"Item Name","category":"Category","quantity":"Qty","unitPrice":"Rate","totalAmount":"Net Amount","date":"Order Date","paymentMode":"Payment Mode","gstAmount":"GST"}`;
 
-  const res = await fetch(`${ENDPOINT}?key=${API_KEY}`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({
-      contents:         [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 256 },
-    }),
+  const raw = await geminiPost({
+    contents:         [{ parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0.1, maxOutputTokens: 256 },
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error?.message ?? `Gemini API error ${res.status}`);
-  }
-  const data = await res.json();
-  const raw  = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
   try {
     return JSON.parse(cleanJSON(raw));
   } catch {
@@ -146,20 +147,10 @@ Example: {"itemName":"Item Name","category":"Category","quantity":"Qty","unitPri
 }
 
 async function callGeminiAndParseSales(parts) {
-  const res = await fetch(`${ENDPOINT}?key=${API_KEY}`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({
-      contents:         [{ parts }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
-    }),
+  const raw = await geminiPost({
+    contents:         [{ parts }],
+    generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error?.message ?? `Gemini API error ${res.status}`);
-  }
-  const data = await res.json();
-  const raw  = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
   return parseSalesJson(raw);
 }
 
@@ -205,22 +196,10 @@ function normaliseSalesPaymentMode(raw) {
 // ─── internal helpers ────────────────────────────────────────────────────────
 
 async function callGeminiAndParse(parts) {
-  const res = await fetch(`${ENDPOINT}?key=${API_KEY}`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({
-      contents:         [{ parts }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 4096 },
-    }),
+  const raw = await geminiPost({
+    contents:         [{ parts }],
+    generationConfig: { temperature: 0.1, maxOutputTokens: 4096 },
   });
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error?.message ?? `Gemini API error ${res.status}`);
-  }
-
-  const data = await res.json();
-  const raw  = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
   return parseMenuJson(raw);
 }
 

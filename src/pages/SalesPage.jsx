@@ -64,25 +64,43 @@ function fmtDate(ts) {
 
 // ── Gemini AI extraction ───────────────────────────────────────────────────────
 
-async function geminiExtract(parts) {
+async function geminiExtract(parts, onRetry, retries = 3, delayMs = 10000) {
   const key = import.meta.env.VITE_GEMINI_API_KEY;
   if (!key) throw new Error('Gemini API key not configured (VITE_GEMINI_API_KEY).');
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts }] }),
-    },
-  );
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body?.error?.message ?? `Gemini error ${res.status}`);
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts }] }),
+      },
+    );
+    if (res.ok) {
+      const data = await res.json();
+      const raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+      console.log('Raw Gemini response:', raw);
+      return raw;
+    }
+    const errBody = await res.json().catch(() => ({}));
+    const msg   = errBody?.error?.message ?? `Gemini error ${res.status}`;
+    const is429 = res.status === 429 || msg.includes('Resource exhausted');
+    if (!is429 || attempt >= retries - 1) throw new Error(msg);
+    if (onRetry) {
+      let secs = Math.round(delayMs / 1000);
+      onRetry(`AI is busy, retrying in ${secs} seconds…`);
+      await new Promise((resolve) => {
+        const iv = setInterval(() => {
+          secs--;
+          if (secs <= 0) { clearInterval(iv); resolve(); }
+          else onRetry(`AI is busy, retrying in ${secs} seconds…`);
+        }, 1000);
+      });
+      onRetry('');
+    } else {
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
   }
-  const data = await res.json();
-  const rawResponse = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-  console.log('Raw Gemini response:', rawResponse);
-  return rawResponse;
 }
 
 function buildPrompt(today) {
@@ -96,15 +114,14 @@ Return a JSON array. Each element must have:
 Return ONLY a valid JSON array. No markdown, no explanation, no code blocks. Just raw JSON starting with [ and ending with ]`;
 }
 
-function buildCsvPrompt(csvText) {
-  const lines = csvText.split('\n').slice(0, 100).join('\n');
-  return `Extract sales data from this CSV/Excel content and return a JSON array.
-Each object must have: itemName, quantity, unitPrice, totalAmount, date, paymentMode.
-If a field is missing use null.
-Return ONLY the JSON array starting with [ nothing else.
+function buildCsvMappingPrompt(headers, sampleRows) {
+  return `Map these CSV column headers to standard sales fields.
+Headers: ${JSON.stringify(headers)}
+Sample rows (${sampleRows.length}):
+${sampleRows.map((r) => JSON.stringify(r)).join('\n')}
 
-Data:
-${lines}`;
+Return ONLY a JSON object mapping each field to the best matching column name, or null if absent:
+{"itemName":null,"quantity":null,"unitPrice":null,"totalAmount":null,"date":null,"paymentMode":null}`;
 }
 
 function normalisePaymentMode(raw) {
@@ -162,6 +179,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
   const [csvRawRows,    setCsvRawRows]    = useState([]);
   const [colMapping,    setColMapping]    = useState({});
   const [showColMapper, setShowColMapper] = useState(false);
+  const [retryMsg,      setRetryMsg]      = useState('');
 
   useEffect(() => {
     if (open) return;
@@ -169,6 +187,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     setExtractErr(''); setSaveErr(''); setSavedCount(null);
     setExtracting(false); setSaving(false); setTab('upload');
     setCsvHeaders([]); setCsvRawRows([]); setColMapping({}); setShowColMapper(false);
+    setRetryMsg('');
   }, [open]);
 
   function updateRow(id, field, val) {
@@ -181,7 +200,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     setRows([]);
     try {
       const today = new Date().toISOString().slice(0, 10);
-      const raw = await geminiExtract(parts);
+      const raw = await geminiExtract(parts, setRetryMsg);
       console.log('EXACT RAW RESPONSE:', JSON.stringify(raw));
       const match = raw.match(/\[[\s\S]*\]/);
       if (!match) throw new Error('AI could not read this file format. Please check the file and try again.');
@@ -194,27 +213,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
       setExtractErr(e.message ?? 'Extraction failed.');
     } finally {
       setExtracting(false);
-    }
-  }
-
-  function triggerPapaFallback(csvText) {
-    const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
-    if (parsed.data.length > 0 && Object.keys(parsed.data[0]).length > 0) {
-      const headers = Object.keys(parsed.data[0]);
-      setCsvHeaders(headers);
-      setCsvRawRows(parsed.data);
-      const find = (kws) => headers.find((h) => kws.some((k) => h.toLowerCase().includes(k))) ?? '';
-      setColMapping({
-        itemName:    find(['item', 'name', 'product', 'dish', 'menu']),
-        quantity:    find(['qty', 'quantity', 'count', 'units']),
-        unitPrice:   find(['price', 'rate', 'unit']),
-        totalAmount: find(['total', 'net', 'gross', 'amount']),
-        date:        find(['date', 'time', 'day']),
-        paymentMode: find(['payment', 'mode', 'method']),
-      });
-      setShowColMapper(true);
-    } else {
-      setExtractErr('AI extraction failed and the file could not be parsed. Please check the format.');
+      setRetryMsg('');
     }
   }
 
@@ -236,53 +235,78 @@ function ImportModal({ open, onClose, companyId, onImported }) {
       return;
     }
 
+    // CSV: parse all rows locally first, then ask AI to map headers only (1 call total).
     const content = await file.text();
-    const lines = content.split('\n').filter((l) => l.trim());
-    if (lines.length < 2) { setExtractErr('CSV file appears to be empty.'); return; }
+    const parsed  = Papa.parse(content, { header: true, skipEmptyLines: true });
 
-    const header = lines[0];
-    const dataLines = lines.slice(1);
-    const CHUNK = 50;
+    if (!parsed.data.length) { setExtractErr('CSV file appears to be empty.'); return; }
+
+    const headers = Object.keys(parsed.data[0]);
+    const sample  = parsed.data.slice(0, 10);
 
     setExtracting(true);
     setExtractErr('');
     setRows([]);
 
+    const autoGuess = (kws) => headers.find((h) => kws.some((k) => h.toLowerCase().includes(k))) ?? '';
+    const openMapper = () => {
+      setCsvHeaders(headers);
+      setCsvRawRows(parsed.data);
+      setColMapping({
+        itemName:    autoGuess(['item', 'name', 'product', 'dish', 'menu']),
+        quantity:    autoGuess(['qty', 'quantity', 'count', 'units']),
+        unitPrice:   autoGuess(['price', 'rate', 'unit']),
+        totalAmount: autoGuess(['total', 'net', 'gross', 'amount']),
+        date:        autoGuess(['date', 'time', 'day']),
+        paymentMode: autoGuess(['payment', 'mode', 'method']),
+      });
+      setShowColMapper(true);
+    };
+
     try {
-      const today = new Date().toISOString().slice(0, 10);
-      const allResults = [];
-      let anyChunkFailed = false;
+      const today  = new Date().toISOString().slice(0, 10);
+      const raw    = await geminiExtract([{ text: buildCsvMappingPrompt(headers, sample) }], setRetryMsg);
+      console.log('EXACT RAW RESPONSE:', JSON.stringify(raw));
 
-      for (let i = 0; i < dataLines.length; i += CHUNK) {
-        const chunk = dataLines.slice(i, i + CHUNK);
-        const chunkText = [header, ...chunk].join('\n');
-        console.log(`CSV chunk ${Math.floor(i / CHUNK) + 1}/${Math.ceil(dataLines.length / CHUNK)}`);
-        try {
-          const raw = await geminiExtract([{ text: buildCsvPrompt(chunkText) }]);
-          console.log('EXACT RAW RESPONSE:', JSON.stringify(raw));
-          const m = raw.match(/\[[\s\S]*\]/);
-          if (m) {
-            const parsed = JSON.parse(m[0]);
-            if (Array.isArray(parsed)) allResults.push(...parsed);
-            else anyChunkFailed = true;
-          } else {
-            anyChunkFailed = true;
-          }
-        } catch {
-          anyChunkFailed = true;
-        }
-      }
+      let mapping = {};
+      const objMatch = raw.match(/\{[\s\S]*\}/);
+      if (objMatch) { try { mapping = JSON.parse(objMatch[0]); } catch { /* fall through */ } }
 
-      if (allResults.length > 0) {
-        setRows(normaliseRows(allResults, today));
-        if (anyChunkFailed) setExtractErr('Some rows could not be extracted. Showing partial results.');
+      // Fill any unmapped fields with keyword guesses.
+      if (!mapping.itemName)    mapping.itemName    = autoGuess(['item', 'name', 'product', 'dish', 'menu']);
+      if (!mapping.quantity)    mapping.quantity    = autoGuess(['qty', 'quantity', 'count', 'units']);
+      if (!mapping.unitPrice)   mapping.unitPrice   = autoGuess(['price', 'rate', 'unit']);
+      if (!mapping.totalAmount) mapping.totalAmount = autoGuess(['total', 'net', 'gross', 'amount']);
+      if (!mapping.date)        mapping.date        = autoGuess(['date', 'time', 'day']);
+      if (!mapping.paymentMode) mapping.paymentMode = autoGuess(['payment', 'mode', 'method']);
+
+      if (!mapping.itemName) {
+        openMapper();
       } else {
-        triggerPapaFallback(content);
+        const mappedRows = parsed.data
+          .filter((row) => row[mapping.itemName])
+          .map((row) => {
+            const qty       = Number(row[mapping.quantity])    || 1;
+            const unitPrice = Number(row[mapping.unitPrice])   || 0;
+            return {
+              id:           Math.random().toString(36).slice(2),
+              date:         (mapping.date && row[mapping.date]) || today,
+              customerName: 'Walk-in',
+              lineItems:    [{ itemName: String(row[mapping.itemName] ?? '').trim() || 'Item', quantity: qty, unitPrice, gstRate: 0 }],
+              paymentMode:  normalisePaymentMode((mapping.paymentMode && row[mapping.paymentMode]) || ''),
+              notes:        '',
+            };
+          });
+        setRows(mappedRows);
       }
-    } catch {
-      triggerPapaFallback(content);
+    } catch (e) {
+      openMapper();
+      if (e.message.includes('429') || e.message.includes('Resource exhausted')) {
+        setExtractErr('AI rate limited after retries — please map the columns manually.');
+      }
     } finally {
       setExtracting(false);
+      setRetryMsg('');
     }
   }
 
@@ -478,6 +502,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
                     {extracting && <LoadingSpinner size="sm" />}
                     {extracting ? 'Extracting…' : 'Extract with AI'}
                   </button>
+                  {retryMsg && <p className="text-sm font-medium text-amber-600">{retryMsg}</p>}
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -492,6 +517,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
                     {extracting && <LoadingSpinner size="sm" />}
                     {extracting ? 'Extracting…' : 'Extract with AI'}
                   </button>
+                  {retryMsg && <p className="text-sm font-medium text-amber-600">{retryMsg}</p>}
                 </div>
               )}
             </>
