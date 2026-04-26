@@ -30,10 +30,10 @@ import BalanceSheetPage from './pages/reports/BalanceSheetPage';
 import CashFlowPage from './pages/reports/CashFlowPage';
 import SalesReportPage from './pages/reports/SalesReportPage';
 import InventoryReportPage from './pages/reports/InventoryReportPage';
+import RecipesPage from './pages/RecipesPage';
 import WastagePage from './pages/WastagePage';
 import ProductionPage from './pages/ProductionPage';
 import MenuMasterPage from './pages/MenuMasterPage';
-import SalesImportPage from './pages/SalesImportPage';
 
 export default function App() {
   return (
@@ -76,10 +76,10 @@ export default function App() {
                 <Route path="/reports/cash-flow" element={<CashFlowPage />} />
                 <Route path="/reports/sales" element={<SalesReportPage />} />
                 <Route path="/reports/inventory" element={<InventoryReportPage />} />
+                <Route path="/fnb/menu-master" element={<MenuMasterPage />} />
+                <Route path="/recipes" element={<RecipesPage />} />
                 <Route path="/wastage" element={<WastagePage />} />
                 <Route path="/production" element={<ProductionPage />} />
-                <Route path="/fnb/menu-master" element={<MenuMasterPage />} />
-                <Route path="/sales/import" element={<SalesImportPage />} />
               </Route>
             </Route>
           </Route>
