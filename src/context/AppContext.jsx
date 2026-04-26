@@ -157,6 +157,7 @@ export function AppProvider({ children }) {
     activeCompany,
     activeCompanyId,
     businessType,
+    salesEntryMode: activeCompany?.salesEntryMode ?? 'POS',
     userRole,
     authLoading,
     companiesLoading,
