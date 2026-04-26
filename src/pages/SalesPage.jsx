@@ -63,6 +63,19 @@ function fmtDate(ts) {
 
 // ── Gemini AI extraction ───────────────────────────────────────────────────────
 
+function cleanJSON(text) {
+  text = text.replace(/```json/gi, '').replace(/```/g, '');
+  const firstBracket = Math.min(
+    text.indexOf('[') === -1 ? Infinity : text.indexOf('['),
+    text.indexOf('{') === -1 ? Infinity : text.indexOf('{'),
+  );
+  if (firstBracket === Infinity) throw new Error('AI could not read this file format. Please check the file and try again.');
+  text = text.substring(firstBracket);
+  const lastBracket = Math.max(text.lastIndexOf(']'), text.lastIndexOf('}'));
+  if (lastBracket === -1) throw new Error('AI could not read this file format. Please check the file and try again.');
+  return text.substring(0, lastBracket + 1).trim();
+}
+
 async function geminiExtract(parts) {
   const key = import.meta.env.VITE_GEMINI_API_KEY;
   if (!key) throw new Error('Gemini API key not configured (VITE_GEMINI_API_KEY).');
@@ -79,8 +92,7 @@ async function geminiExtract(parts) {
     throw new Error(body?.error?.message ?? `Gemini error ${res.status}`);
   }
   const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-  return text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
 }
 
 function buildPrompt(today) {
@@ -91,7 +103,7 @@ Return a JSON array. Each element must have:
 - lineItems: array of { itemName: string, quantity: number, unitPrice: number, gstRate: number }
 - paymentMode: one of "Cash","Card","UPI","Credit" (use "Cash" if unknown)
 - notes: string (use "" if none)
-Return ONLY the raw JSON array. No markdown, no extra text.`;
+Return ONLY a valid JSON array. No markdown, no explanation, no code blocks. Just raw JSON starting with [ and ending with ]`;
 }
 
 function normaliseRows(arr, today) {
@@ -141,9 +153,14 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     setRows([]);
     try {
       const today = new Date().toISOString().slice(0, 10);
-      const text = await geminiExtract(parts);
-      const arr = JSON.parse(text);
-      if (!Array.isArray(arr)) throw new Error('AI returned unexpected format.');
+      const raw = await geminiExtract(parts);
+      let arr;
+      try {
+        arr = JSON.parse(cleanJSON(raw));
+      } catch {
+        throw new Error('AI could not read this file format. Please check the file and try again.');
+      }
+      if (!Array.isArray(arr)) throw new Error('AI could not read this file format. Please check the file and try again.');
       setRows(normaliseRows(arr, today));
     } catch (e) {
       setExtractErr(e.message ?? 'Extraction failed.');

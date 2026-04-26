@@ -1,6 +1,19 @@
 const API_KEY  = import.meta.env.VITE_GEMINI_API_KEY;
 const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`;
 
+function cleanJSON(text) {
+  text = text.replace(/```json/gi, '').replace(/```/g, '');
+  const firstBracket = Math.min(
+    text.indexOf('[') === -1 ? Infinity : text.indexOf('['),
+    text.indexOf('{') === -1 ? Infinity : text.indexOf('{'),
+  );
+  if (firstBracket === Infinity) throw new Error('AI could not read this file format. Please check the file and try again.');
+  text = text.substring(firstBracket);
+  const lastBracket = Math.max(text.lastIndexOf(']'), text.lastIndexOf('}'));
+  if (lastBracket === -1) throw new Error('AI could not read this file format. Please check the file and try again.');
+  return text.substring(0, lastBracket + 1).trim();
+}
+
 const EXTRACT_PROMPT = `Extract all menu items from this content.
 For each item return EXACTLY these fields:
 - itemName: the name of the dish or drink
@@ -8,7 +21,7 @@ For each item return EXACTLY these fields:
 - sellingPrice: price as a plain number (no currency symbols, no commas)
 - description: short description if visible, otherwise empty string
 
-Return ONLY a valid JSON array with no markdown, no explanation, no extra text.
+Return ONLY a valid JSON array. No markdown, no explanation, no code blocks. Just raw JSON starting with [ and ending with ]
 Example output:
 [{"itemName":"Butter Chicken","category":"Food","sellingPrice":280,"description":"Rich creamy tomato curry"},{"itemName":"Mango Lassi","category":"Beverage","sellingPrice":80,"description":""}]`;
 
@@ -61,15 +74,11 @@ Use null if no matching column exists. Example:
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error?.message ?? `Gemini API error ${res.status}`);
   }
-  const data    = await res.json();
-  const raw     = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-  const cleaned = raw
-    .replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+  const data = await res.json();
+  const raw  = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
   try {
-    return JSON.parse(cleaned);
+    return JSON.parse(cleanJSON(raw));
   } catch {
-    const match = cleaned.match(/\{[\s\S]*\}/);
-    if (match) return JSON.parse(match[0]);
     throw new Error('Could not parse AI column mapping. Please try again.');
   }
 }
@@ -87,7 +96,7 @@ For each row return EXACTLY these fields:
 - paymentMode: exactly one of "Cash", "Card", or "UPI" (use "Cash" if unclear)
 - gstAmount: GST/tax amount for this row as a plain number (0 if not visible)
 
-Return ONLY a valid JSON array with no markdown, no explanation, no extra text.
+Return ONLY a valid JSON array. No markdown, no explanation, no code blocks. Just raw JSON starting with [ and ending with ]
 Example: [{"itemName":"Butter Chicken","category":"Food","quantity":2,"unitPrice":280,"totalAmount":560,"date":"2024-01-15","paymentMode":"UPI","gstAmount":28}]`;
 
 export async function extractSalesFromImage(imageFile) {
@@ -127,15 +136,11 @@ Example: {"itemName":"Item Name","category":"Category","quantity":"Qty","unitPri
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error?.message ?? `Gemini API error ${res.status}`);
   }
-  const data    = await res.json();
-  const raw     = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-  const cleaned = raw
-    .replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+  const data = await res.json();
+  const raw  = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
   try {
-    return JSON.parse(cleaned);
+    return JSON.parse(cleanJSON(raw));
   } catch {
-    const match = cleaned.match(/\{[\s\S]*\}/);
-    if (match) return JSON.parse(match[0]);
     throw new Error('Could not parse AI column mapping. Please try again.');
   }
 }
@@ -159,24 +164,14 @@ async function callGeminiAndParseSales(parts) {
 }
 
 function parseSalesJson(raw) {
-  const cleaned = raw
-    .replace(/^```json\s*/i, '')
-    .replace(/^```\s*/i, '')
-    .replace(/\s*```$/i, '')
-    .trim();
-
   let parsed;
   try {
-    parsed = JSON.parse(cleaned);
+    parsed = JSON.parse(cleanJSON(raw));
   } catch {
-    const match = cleaned.match(/\[[\s\S]*\]/);
-    if (match) {
-      try { parsed = JSON.parse(match[0]); } catch { /* fall through */ }
-    }
-    if (!parsed) throw new Error('Could not parse AI response. Please try again.');
+    throw new Error('AI could not read this file format. Please check the file and try again.');
   }
 
-  if (!Array.isArray(parsed)) throw new Error('AI returned unexpected format. Please try again.');
+  if (!Array.isArray(parsed)) throw new Error('AI could not read this file format. Please check the file and try again.');
 
   return parsed
     .filter((it) => it.itemName && (Number(it.totalAmount) > 0 || Number(it.unitPrice) > 0))
@@ -230,26 +225,14 @@ async function callGeminiAndParse(parts) {
 }
 
 function parseMenuJson(raw) {
-  // Strip markdown code fences if Gemini wraps its output
-  const cleaned = raw
-    .replace(/^```json\s*/i, '')
-    .replace(/^```\s*/i, '')
-    .replace(/\s*```$/i, '')
-    .trim();
-
   let parsed;
   try {
-    parsed = JSON.parse(cleaned);
+    parsed = JSON.parse(cleanJSON(raw));
   } catch {
-    // Try to extract just the JSON array from the response
-    const match = cleaned.match(/\[[\s\S]*\]/);
-    if (match) {
-      try { parsed = JSON.parse(match[0]); } catch { /* fall through */ }
-    }
-    if (!parsed) throw new Error('Could not parse AI response. Please try again or use the text option.');
+    throw new Error('AI could not read this file format. Please check the file and try again.');
   }
 
-  if (!Array.isArray(parsed)) throw new Error('AI returned unexpected format. Please try again.');
+  if (!Array.isArray(parsed)) throw new Error('AI could not read this file format. Please check the file and try again.');
 
   return parsed
     .filter((it) => it.itemName)
