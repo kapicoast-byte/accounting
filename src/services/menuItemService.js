@@ -67,6 +67,8 @@ export async function createMenuItem(companyId, payload) {
     description:  (payload.description         ?? '').trim(),
     isAvailable:  payload.isAvailable          !== false,
     displayOrder: Number(payload.displayOrder) || 0,
+    isVeg:        payload.isVeg                ?? null,
+    HSNCode:      (payload.HSNCode             ?? '').trim(),
     ...derived(payload),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -87,6 +89,8 @@ export async function updateMenuItem(companyId, itemId, payload) {
     description:  (payload.description         ?? '').trim(),
     isAvailable:  !!payload.isAvailable,
     displayOrder: Number(payload.displayOrder) || 0,
+    isVeg:        payload.isVeg                ?? null,
+    HSNCode:      (payload.HSNCode             ?? '').trim(),
     ...derived(payload),
     updatedAt: serverTimestamp(),
   });
