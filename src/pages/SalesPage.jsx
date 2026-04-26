@@ -37,6 +37,27 @@ const STATUS_OPTIONS = [
   { value: SALE_STATUS.PARTIAL, label: 'Partial' },
 ];
 
+const SOURCE_OPTIONS = [
+  { value: '',         label: 'All sources' },
+  { value: 'pos',      label: 'POS' },
+  { value: 'imported', label: 'Imported' },
+];
+
+function SourceBadge({ source }) {
+  if (source === 'imported') {
+    return (
+      <span className="inline-flex items-center rounded-full bg-violet-50 border border-violet-200 px-2 py-0.5 text-[10px] font-medium text-violet-700">
+        Imported
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center rounded-full bg-blue-50 border border-blue-200 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+      POS
+    </span>
+  );
+}
+
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -57,6 +78,7 @@ export default function SalesPage() {
   const [toDate, setToDate] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');
 
   const [payTarget, setPayTarget] = useState(null);
 
@@ -83,6 +105,8 @@ export default function SalesPage() {
 
   const filtered = sales.filter((s) => {
     if (statusFilter && s.status !== statusFilter) return false;
+    if (sourceFilter === 'imported' && s.source !== 'imported') return false;
+    if (sourceFilter === 'pos' && s.source === 'imported') return false;
     if (customerSearch) {
       const name = (s.customerSnapshot?.name ?? '').toLowerCase();
       if (!name.includes(customerSearch.toLowerCase())) return false;
@@ -128,6 +152,10 @@ export default function SalesPage() {
           className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500">
           {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
+        <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}
+          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500">
+          {SOURCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
         <button type="button" onClick={load}
           className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">
           Refresh
@@ -158,6 +186,7 @@ export default function SalesPage() {
                   <th className="px-4 py-2 text-right">Paid</th>
                   <th className="px-4 py-2 text-right">Balance</th>
                   <th className="px-4 py-2">Mode</th>
+                  <th className="px-4 py-2">Source</th>
                   <th className="px-4 py-2">Status</th>
                   <th className="px-4 py-2"></th>
                 </tr>
@@ -180,6 +209,7 @@ export default function SalesPage() {
                       {sale.balanceDue > 0 ? formatCurrency(sale.balanceDue) : '—'}
                     </td>
                     <td className="px-4 py-2 text-xs text-gray-600">{sale.paymentMode}</td>
+                    <td className="px-4 py-2"><SourceBadge source={sale.source} /></td>
                     <td className="px-4 py-2"><PaymentStatusBadge status={sale.status} /></td>
                     <td className="px-4 py-2">
                       <div className="flex justify-end gap-2 text-xs">

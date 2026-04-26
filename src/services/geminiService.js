@@ -74,6 +74,139 @@ Use null if no matching column exists. Example:
   }
 }
 
+// ─── Sales report extraction ─────────────────────────────────────────────────
+
+const SALES_EXTRACT_PROMPT = `This is a sales report from a restaurant or retail POS system. Extract every sales transaction row and return as a JSON array.
+For each row return EXACTLY these fields:
+- itemName: name of the item sold
+- category: item category if visible, otherwise "Food"
+- quantity: units sold as a plain number (default 1 if not shown)
+- unitPrice: price per unit as a plain number (no currency symbols)
+- totalAmount: total for this row as a plain number (quantity x unitPrice; no currency symbols or commas)
+- date: date in "YYYY-MM-DD" format (use the report's overall date if not shown per row, use today if unknown)
+- paymentMode: exactly one of "Cash", "Card", or "UPI" (use "Cash" if unclear)
+- gstAmount: GST/tax amount for this row as a plain number (0 if not visible)
+
+Return ONLY a valid JSON array with no markdown, no explanation, no extra text.
+Example: [{"itemName":"Butter Chicken","category":"Food","quantity":2,"unitPrice":280,"totalAmount":560,"date":"2024-01-15","paymentMode":"UPI","gstAmount":28}]`;
+
+export async function extractSalesFromImage(imageFile) {
+  if (!API_KEY) throw new Error('VITE_GEMINI_API_KEY is not set in environment variables.');
+  const base64   = await fileToBase64(imageFile);
+  const mimeType = imageFile.type || 'image/jpeg';
+  return callGeminiAndParseSales([
+    { inlineData: { data: base64, mimeType } },
+    { text: SALES_EXTRACT_PROMPT },
+  ]);
+}
+
+// Maps CSV/Excel headers to sales fields via Gemini, returns a column-mapping object.
+export async function mapSalesCsvColumns(headers, sampleRows) {
+  if (!API_KEY) throw new Error('VITE_GEMINI_API_KEY is not set in environment variables.');
+  const prompt = `This is a sales report CSV from a restaurant POS (e.g. Petpooja, Zomato, Swiggy, or similar). Map columns to standard sales fields.
+
+Column headers: ${JSON.stringify(headers)}
+
+First few data rows (arrays matching headers):
+${sampleRows.map((r) => JSON.stringify(r)).join('\n')}
+
+Return ONLY a JSON object mapping each target field to the matching source column name (or null if not present):
+itemName, category, quantity, unitPrice, totalAmount, date, paymentMode, gstAmount
+
+Example: {"itemName":"Item Name","category":"Category","quantity":"Qty","unitPrice":"Rate","totalAmount":"Net Amount","date":"Order Date","paymentMode":"Payment Mode","gstAmount":"GST"}`;
+
+  const res = await fetch(`${ENDPOINT}?key=${API_KEY}`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({
+      contents:         [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 256 },
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error?.message ?? `Gemini API error ${res.status}`);
+  }
+  const data    = await res.json();
+  const raw     = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+  const cleaned = raw
+    .replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]);
+    throw new Error('Could not parse AI column mapping. Please try again.');
+  }
+}
+
+async function callGeminiAndParseSales(parts) {
+  const res = await fetch(`${ENDPOINT}?key=${API_KEY}`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({
+      contents:         [{ parts }],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error?.message ?? `Gemini API error ${res.status}`);
+  }
+  const data = await res.json();
+  const raw  = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+  return parseSalesJson(raw);
+}
+
+function parseSalesJson(raw) {
+  const cleaned = raw
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+
+  let parsed;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    const match = cleaned.match(/\[[\s\S]*\]/);
+    if (match) {
+      try { parsed = JSON.parse(match[0]); } catch { /* fall through */ }
+    }
+    if (!parsed) throw new Error('Could not parse AI response. Please try again.');
+  }
+
+  if (!Array.isArray(parsed)) throw new Error('AI returned unexpected format. Please try again.');
+
+  return parsed
+    .filter((it) => it.itemName && (Number(it.totalAmount) > 0 || Number(it.unitPrice) > 0))
+    .map((it, i) => {
+      const qty         = Number(it.quantity)    || 1;
+      const unitPrice   = Number(it.unitPrice)   || 0;
+      const totalAmount = Number(it.totalAmount) || qty * unitPrice;
+      return {
+        _id:         i + 1,
+        _selected:   true,
+        itemName:    String(it.itemName ?? '').trim(),
+        category:    String(it.category ?? 'Food').trim(),
+        quantity:    qty,
+        unitPrice,
+        totalAmount,
+        date:        String(it.date ?? '').trim(),
+        paymentMode: normaliseSalesPaymentMode(it.paymentMode),
+        gstAmount:   Number(it.gstAmount) || 0,
+      };
+    });
+}
+
+function normaliseSalesPaymentMode(raw) {
+  if (!raw) return 'Cash';
+  const s = String(raw).toLowerCase();
+  if (s.includes('card') || s.includes('credit') || s.includes('debit')) return 'Card';
+  if (s.includes('upi') || s.includes('gpay') || s.includes('paytm') || s.includes('phone') || s.includes('online')) return 'UPI';
+  return 'Cash';
+}
+
 // ─── internal helpers ────────────────────────────────────────────────────────
 
 async function callGeminiAndParse(parts) {

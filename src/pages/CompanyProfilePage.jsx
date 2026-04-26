@@ -11,6 +11,7 @@ import {
   listUserCompanies,
   COMPANY_TYPE,
   BUSINESS_TYPES,
+  SALES_ENTRY_MODES,
 } from '../services/companyService';
 import { COUNTRIES, TAX_SYSTEMS, getCountryConfig } from '../utils/countryConfig';
 import Modal from '../components/Modal';
@@ -179,6 +180,7 @@ export default function CompanyProfilePage() {
       email:              activeCompany.email ?? '',
       financialYearStart: activeCompany.financialYearStart ?? '04-01',
       businessType:       activeCompany.businessType ?? '',
+      salesEntryMode:     activeCompany.salesEntryMode ?? 'POS',
       country:            activeCompany.country ?? 'IN',
       state:              activeCompany.state ?? '',
       taxSystem:          activeCompany.taxSystem ?? cc?.taxSystem ?? 'GST_IN',
@@ -484,6 +486,56 @@ export default function CompanyProfilePage() {
                     <div>
                       <p className="text-sm font-semibold text-gray-900">{bt.label}</p>
                       <p className="mt-0.5 text-xs text-gray-500">{bt.desc}</p>
+                    </div>
+                  </div>
+                ) : <p className="text-sm text-gray-500 py-2">—</p>;
+              })()
+            )}
+          </div>
+
+          {/* Sales Entry Mode */}
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-medium text-gray-700">Sales Entry Mode</label>
+            {isAdmin ? (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                {SALES_ENTRY_MODES.map((mode) => {
+                  const selected = form.salesEntryMode === mode.value;
+                  return (
+                    <button
+                      key={mode.value}
+                      type="button"
+                      disabled={saving}
+                      onClick={() => {
+                        setForm((prev) => ({ ...prev, salesEntryMode: mode.value }));
+                        setSaveError('');
+                        setSaveSuccess(false);
+                      }}
+                      className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-left transition disabled:opacity-50 ${
+                        selected
+                          ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500'
+                          : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      <span className="text-xl leading-none mt-0.5 flex-shrink-0">{mode.icon}</span>
+                      <div className="min-w-0">
+                        <p className={`text-sm font-semibold ${selected ? 'text-blue-700' : 'text-gray-900'}`}>
+                          {mode.label}
+                        </p>
+                        <p className="mt-0.5 text-xs text-gray-500 leading-relaxed">{mode.desc}</p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              (() => {
+                const mode = SALES_ENTRY_MODES.find((m) => m.value === form.salesEntryMode);
+                return mode ? (
+                  <div className="flex items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                    <span className="text-xl leading-none mt-0.5">{mode.icon}</span>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">{mode.label}</p>
+                      <p className="mt-0.5 text-xs text-gray-500">{mode.desc}</p>
                     </div>
                   </div>
                 ) : <p className="text-sm text-gray-500 py-2">—</p>;

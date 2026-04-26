@@ -162,7 +162,7 @@ function AccountsDropdown() {
 }
 
 export default function Navbar() {
-  const { user, activeCompany, isConsolidated, isParentCompany, toggleConsolidated } = useApp();
+  const { user, activeCompany, isConsolidated, isParentCompany, toggleConsolidated, salesEntryMode } = useApp();
   const { role } = useRole();
   const businessType = activeCompany?.businessType;
   const navigate = useNavigate();
@@ -195,6 +195,20 @@ export default function Navbar() {
                 {link.label}
               </NavLink>
             ))}
+            {(salesEntryMode === 'Document Upload' || salesEntryMode === 'Both') && (
+              <NavLink
+                to="/sales/import"
+                className={({ isActive }) =>
+                  `rounded-md px-3 py-1.5 text-sm transition ${
+                    isActive
+                      ? 'bg-blue-50 text-blue-700 font-medium'
+                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  }`
+                }
+              >
+                Import Sales
+              </NavLink>
+            )}
             <AccountsDropdown />
             <FnbDropdown />
           </nav>

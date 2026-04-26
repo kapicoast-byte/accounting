@@ -158,9 +158,30 @@ export async function listAdminParentCompaniesForUser(uid) {
 
 // ─── update profile ───────────────────────────────────────────────────────────
 
+export const SALES_ENTRY_MODES = [
+  {
+    value: 'POS',
+    label: 'POS / Live Billing',
+    icon:  '🖥️',
+    desc:  'Live billing screen — create invoices from the menu or inventory in real time.',
+  },
+  {
+    value: 'Document Upload',
+    label: 'Document Upload',
+    icon:  '📄',
+    desc:  'Upload daily or monthly sales reports (CSV, PDF, or image) — AI extracts and imports the data.',
+  },
+  {
+    value: 'Both',
+    label: 'Both',
+    icon:  '🔄',
+    desc:  'Use live POS for billing and also upload external reports from third-party apps.',
+  },
+];
+
 export async function updateCompanyProfile(companyId, {
   companyName, address, GSTIN, phone, email, financialYearStart, businessType,
-  country, state, taxSystem, currencyCode, customTaxRates,
+  country, state, taxSystem, currencyCode, customTaxRates, salesEntryMode,
 }) {
   const updates = { updatedAt: serverTimestamp() };
   if (companyName        !== undefined) updates.companyName        = companyName.trim();
@@ -175,6 +196,7 @@ export async function updateCompanyProfile(companyId, {
   if (taxSystem          !== undefined) updates.taxSystem          = taxSystem;
   if (currencyCode       !== undefined) updates.currencyCode       = currencyCode.trim().toUpperCase();
   if (customTaxRates     !== undefined) updates.customTaxRates     = customTaxRates;
+  if (salesEntryMode     !== undefined) updates.salesEntryMode     = salesEntryMode;
   await updateDoc(doc(db, 'companies', companyId), updates);
 }
 
