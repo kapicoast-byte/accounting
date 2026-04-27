@@ -34,6 +34,7 @@ import WastagePage from './pages/WastagePage';
 import ProductionPage from './pages/ProductionPage';
 import MenuMasterPage from './pages/MenuMasterPage';
 import SalesImportPage from './pages/SalesImportPage';
+import DeletionLogsPage from './pages/admin/DeletionLogsPage';
 
 export default function App() {
   return (
@@ -80,6 +81,11 @@ export default function App() {
                 <Route path="/production" element={<ProductionPage />} />
                 <Route path="/fnb/menu-master" element={<MenuMasterPage />} />
                 <Route path="/sales/import" element={<SalesImportPage />} />
+
+                {/* Admin-only routes */}
+                <Route element={<RoleRequiredRoute permission="admin" message="Only admins can access this page." />}>
+                  <Route path="/admin/deletion-logs" element={<DeletionLogsPage />} />
+                </Route>
               </Route>
             </Route>
           </Route>

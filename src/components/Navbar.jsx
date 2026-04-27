@@ -5,6 +5,7 @@ import { logoutUser } from '../services/authService';
 import { useRole } from '../hooks/useRole';
 import { ROLE_LABELS } from '../services/memberService';
 import { BUSINESS_TYPES } from '../services/companyService';
+import { getThisMonthDeletionCount } from '../services/deletionLogService';
 import CompanySwitcher from './CompanySwitcher';
 
 const BT_COLORS = {
@@ -104,6 +105,79 @@ function FnbDropdown() {
   );
 }
 
+function AdminDropdown({ companyId }) {
+  const [open, setOpen] = useState(false);
+  const [monthCount, setMonthCount] = useState(null);
+  const ref = useRef(null);
+  const location = useLocation();
+
+  const isActive = location.pathname.startsWith('/admin');
+
+  useEffect(() => {
+    if (!companyId) return;
+    getThisMonthDeletionCount(companyId).then(setMonthCount).catch(() => {});
+  }, [companyId]);
+
+  useEffect(() => {
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-sm transition ${
+          isActive
+            ? 'bg-red-50 text-red-700 font-medium'
+            : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+        }`}
+      >
+        Admin
+        {monthCount > 0 && (
+          <span className="ml-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+            {monthCount}
+          </span>
+        )}
+        <svg className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
+          viewBox="0 0 20 20" fill="currentColor">
+          <path fillRule="evenodd"
+            d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+            clipRule="evenodd" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full z-50 mt-1 w-52 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+          <p className="px-4 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+            Admin Tools
+          </p>
+          <NavLink
+            to="/admin/deletion-logs"
+            onClick={() => setOpen(false)}
+            className={({ isActive: a }) =>
+              `flex items-center justify-between px-4 py-2 text-sm transition ${
+                a ? 'bg-red-50 text-red-700 font-medium' : 'text-gray-700 hover:bg-gray-50'
+              }`
+            }
+          >
+            <span>Deletion Audit Trail</span>
+            {monthCount > 0 && (
+              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-red-100 px-1 text-[10px] font-bold text-red-600">
+                {monthCount}
+              </span>
+            )}
+          </NavLink>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AccountsDropdown() {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -162,8 +236,8 @@ function AccountsDropdown() {
 }
 
 export default function Navbar() {
-  const { user, activeCompany, isConsolidated, isParentCompany, toggleConsolidated, salesEntryMode } = useApp();
-  const { role } = useRole();
+  const { user, activeCompany, isConsolidated, isParentCompany, toggleConsolidated, salesEntryMode, activeCompanyId } = useApp();
+  const { role, isAdmin } = useRole();
   const businessType = activeCompany?.businessType;
   const navigate = useNavigate();
 
@@ -211,6 +285,7 @@ export default function Navbar() {
             )}
             <AccountsDropdown />
             <FnbDropdown />
+            {isAdmin && <AdminDropdown companyId={activeCompanyId} />}
           </nav>
         </div>
 

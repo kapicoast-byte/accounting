@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
+import { useRole } from '../hooks/useRole';
 import { listSales, SALE_STATUS } from '../services/saleService';
 import { BUSINESS_TYPES } from '../services/companyService';
 import { startOfDay, endOfDay } from '../utils/dateUtils';
@@ -10,6 +11,7 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import RoleGuard from '../components/RoleGuard';
 import PaymentStatusBadge from '../components/sales/PaymentStatusBadge';
 import PaymentModal from '../components/sales/PaymentModal';
+import DeleteRecordModal from '../components/DeleteRecordModal';
 
 const BT_COLORS = {
   'F&B':           'bg-orange-50 text-orange-700 border-orange-200',
@@ -68,7 +70,8 @@ function fmtDate(ts) {
 }
 
 export default function SalesPage() {
-  const { activeCompanyId, businessType } = useApp();
+  const { activeCompanyId, businessType, user } = useApp();
+  const { isAdmin } = useRole();
 
   const [sales, setSales] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -80,7 +83,8 @@ export default function SalesPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
 
-  const [payTarget, setPayTarget] = useState(null);
+  const [payTarget,    setPayTarget]    = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
   const load = useCallback(async () => {
     if (!activeCompanyId) return;
@@ -188,7 +192,7 @@ export default function SalesPage() {
                   <th className="px-4 py-2">Mode</th>
                   <th className="px-4 py-2">Source</th>
                   <th className="px-4 py-2">Status</th>
-                  <th className="px-4 py-2"></th>
+                  <th className="px-4 py-2" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -223,6 +227,19 @@ export default function SalesPage() {
                             Collect
                           </button>
                         )}
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget(sale)}
+                            title="Delete record"
+                            className="flex items-center gap-1 rounded-md border border-red-200 bg-white px-2 py-1 text-red-600 hover:bg-red-50"
+                          >
+                            <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                            </svg>
+                            Delete
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -239,6 +256,19 @@ export default function SalesPage() {
         sale={payTarget}
         onClose={() => setPayTarget(null)}
         onPaid={(updated) => handlePaymentRecorded(updated, payTarget?.saleId)}
+      />
+
+      <DeleteRecordModal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onDeleted={(id) => {
+          setSales((prev) => prev.filter((s) => s.saleId !== id));
+          setDeleteTarget(null);
+        }}
+        companyId={activeCompanyId}
+        record={deleteTarget}
+        recordType="sale"
+        user={user}
       />
     </div>
   );
