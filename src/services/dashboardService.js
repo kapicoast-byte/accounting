@@ -75,38 +75,47 @@ export async function getLowStockItems(companyId, limit = 10) {
 }
 
 export async function getTopSellingItemsThisMonth(companyId, limit = 5) {
-  const sales = await fetchInRange(
-    companyId,
-    'sales',
-    'date',
-    startOfMonth(),
-    endOfDay(),
-  );
-  console.log('[Dashboard] getTopSellingItemsThisMonth — companyId:', companyId, '| sales this month:', sales.length);
+  const start = startOfMonth();
+  const end   = endOfDay();
+
+  const [sales, importedItems] = await Promise.all([
+    fetchInRange(companyId, 'sales',      'date', start, end),
+    fetchInRange(companyId, 'salesItems', 'date', start, end),
+  ]);
+  console.log('[Dashboard] getTopSellingItemsThisMonth — companyId:', companyId, '| sales:', sales.length, '| salesItems:', importedItems.length);
 
   const totals = new Map();
+
+  // POS sales from lineItems (skip imported entries — counted via salesItems)
   for (const sale of sales) {
+    if (sale.entrySource === 'import' || sale.source === 'imported') continue;
     const lines = Array.isArray(sale.lineItems) ? sale.lineItems : [];
     for (const line of lines) {
       const key = line.itemId ?? line.itemName;
       if (!key) continue;
-      const qty    = Number(line.quantity ?? 0);
-      const amount = Number(line.lineSubtotal ?? 0);
       const prev = totals.get(key) ?? {
         itemId:   line.itemId   ?? null,
         itemName: line.itemName ?? 'Unnamed item',
         qty:      0,
         amount:   0,
       };
-      prev.qty    += qty;
-      prev.amount += amount;
+      prev.qty    += Number(line.quantity    ?? 0);
+      prev.amount += Number(line.lineSubtotal ?? 0);
       totals.set(key, prev);
     }
   }
 
-  return [...totals.values()]
-    .sort((a, b) => b.qty - a.qty)
-    .slice(0, limit);
+  // Imported sales from salesItems collection
+  for (const it of importedItems) {
+    const key = it.itemName;
+    if (!key) continue;
+    const prev = totals.get(key) ?? { itemId: null, itemName: key, qty: 0, amount: 0 };
+    prev.qty    += Number(it.quantity)    || 0;
+    prev.amount += Number(it.totalAmount) || 0;
+    totals.set(key, prev);
+  }
+
+  return [...totals.values()].sort((a, b) => b.qty - a.qty).slice(0, limit);
 }
 
 export async function getCashAndBankBalance(companyId) {

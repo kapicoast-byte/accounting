@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Papa from 'papaparse';
+import { Timestamp } from 'firebase/firestore';
 import { useApp } from '../context/AppContext';
 import { listSales, createSale, SALE_STATUS, PAYMENT_MODES } from '../services/saleService';
+import { writeSalesItems } from '../services/salesItemService';
 import { BUSINESS_TYPES } from '../services/companyService';
 import { startOfDay, endOfDay, toJsDate } from '../utils/dateUtils';
 import { formatCurrency } from '../utils/format';
@@ -197,6 +199,12 @@ function normaliseRows(arr, today) {
   });
 }
 
+function dateToTs(dateStr) {
+  if (!dateStr) return Timestamp.now();
+  const d = new Date(dateStr + 'T12:00:00');
+  return isNaN(d.getTime()) ? Timestamp.now() : Timestamp.fromDate(d);
+}
+
 // ── Import Modal ───────────────────────────────────────────────────────────────
 
 function ImportModal({ open, onClose, companyId, onImported }) {
@@ -214,11 +222,14 @@ function ImportModal({ open, onClose, companyId, onImported }) {
   const [csvRawRows,    setCsvRawRows]    = useState([]);
   const [colMapping,    setColMapping]    = useState({});
   const [showColMapper, setShowColMapper] = useState(false);
-  const [retryMsg,      setRetryMsg]      = useState('');
-  const [pdfDateStep,   setPdfDateStep]   = useState(false);
-  const [pdfDetected,   setPdfDetected]   = useState('');
-  const [importDate,    setImportDate]    = useState('');
-  const [pendingRows,   setPendingRows]   = useState([]);
+  const [retryMsg,       setRetryMsg]       = useState('');
+  const [pdfDateStep,    setPdfDateStep]    = useState(false);
+  const [pdfDetected,    setPdfDetected]    = useState('');
+  const [importDate,     setImportDate]     = useState('');
+  const [pendingRows,    setPendingRows]    = useState([]);
+  const [pdfRangeFrom,   setPdfRangeFrom]   = useState('');
+  const [reportDateFrom, setReportDateFrom] = useState('');
+  const [reportDateTo,   setReportDateTo]   = useState('');
 
   useEffect(() => {
     if (open) return;
@@ -228,6 +239,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     setCsvHeaders([]); setCsvRawRows([]); setColMapping({}); setShowColMapper(false);
     setRetryMsg('');
     setPdfDateStep(false); setPdfDetected(''); setImportDate(''); setPendingRows([]);
+    setPdfRangeFrom(''); setReportDateFrom(''); setReportDateTo('');
   }, [open]);
 
   function updateRow(id, field, val) {
@@ -310,6 +322,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
         if (!pending.length) throw new Error('No valid items could be extracted. Please check the file.');
 
         setPendingRows(pending);
+        setPdfRangeFrom(result.dateFrom || '');
         setPdfDetected(
           result.dateFrom && result.dateTo
             ? `${formatISODate(result.dateFrom)} to ${formatISODate(result.dateTo)}`
@@ -435,6 +448,8 @@ function ImportModal({ open, onClose, companyId, onImported }) {
 
   function confirmPdfDate() {
     const date = importDate || new Date().toISOString().slice(0, 10);
+    setReportDateFrom(pdfRangeFrom || date);
+    setReportDateTo(date);
     setRows(pendingRows.map((r) => ({ ...r, date })));
     setPdfDateStep(false);
     setPendingRows([]);
@@ -453,6 +468,8 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     setSaveErr('');
     let saved = 0;
     const errs = [];
+    const salesItemBatch = [];
+
     for (const row of rows) {
       try {
         await createSale(companyId, {
@@ -476,10 +493,34 @@ function ImportModal({ open, onClose, companyId, onImported }) {
           entrySource:   'import',
         });
         saved++;
+        for (const l of row.lineItems) {
+          const qty         = Number(l.quantity)  || 0;
+          const unitPrice   = Number(l.unitPrice) || 0;
+          const gstRate     = Number(l.gstRate)   || 0;
+          const totalAmount = qty * unitPrice;
+          salesItemBatch.push({
+            itemName:       String(l.itemName ?? '').trim(),
+            category:       row.notes || 'Other',
+            quantity:       qty,
+            unitPrice,
+            totalAmount,
+            GSTAmount:      totalAmount * gstRate / 100,
+            date:           dateToTs(row.date),
+            source:         'imported',
+            reportDateFrom: dateToTs(reportDateFrom || row.date),
+            reportDateTo:   dateToTs(reportDateTo   || row.date),
+          });
+        }
       } catch (e) {
         errs.push(e.message);
       }
     }
+
+    if (salesItemBatch.length) {
+      try { await writeSalesItems(companyId, salesItemBatch); }
+      catch (e) { console.error('salesItems write failed:', e); }
+    }
+
     setSaving(false);
     if (saved > 0) {
       setSavedCount(saved);
@@ -878,6 +919,12 @@ export default function SalesPage() {
               }`}>
               Import Sales Report
             </button>
+          )}
+          {(isImport || isBoth) && (
+            <Link to="/sales/insights"
+              className="rounded-md border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 transition">
+              View Insights
+            </Link>
           )}
         </div>
       </div>

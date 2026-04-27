@@ -34,6 +34,7 @@ import RecipesPage from './pages/RecipesPage';
 import WastagePage from './pages/WastagePage';
 import ProductionPage from './pages/ProductionPage';
 import MenuMasterPage from './pages/MenuMasterPage';
+import SalesInsightsPage from './pages/SalesInsightsPage';
 
 export default function App() {
   return (
@@ -52,6 +53,7 @@ export default function App() {
                 <Route path="/inventory" element={<InventoryPage />} />
                 <Route path="/sales" element={<SalesPage />} />
                 <Route path="/sales/new" element={<CreateInvoicePage />} />
+                <Route path="/sales/insights" element={<SalesInsightsPage />} />
                 <Route path="/sales/:saleId" element={<ViewInvoicePage />} />
                 <Route path="/purchases" element={<PurchasesPage />} />
                 <Route path="/purchases/new" element={<CreatePurchasePage />} />
