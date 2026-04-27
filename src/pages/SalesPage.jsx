@@ -761,7 +761,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
 // ── Sales Page ─────────────────────────────────────────────────────────────────
 
 export default function SalesPage() {
-  const { activeCompanyId, businessType, salesEntryMode } = useApp();
+  const { activeCompanyId, businessType, salesEntryMode, activeCompany } = useApp();
 
   const [sales,          setSales]          = useState([]);
   const [loading,        setLoading]        = useState(false);
@@ -774,8 +774,10 @@ export default function SalesPage() {
   const [payTarget,      setPayTarget]      = useState(null);
   const [importOpen,     setImportOpen]     = useState(false);
 
-  const showPOS    = salesEntryMode === 'POS'              || salesEntryMode === 'Both';
-  const showImport = salesEntryMode === 'Document Upload'  || salesEntryMode === 'Both';
+  const modeSet  = !!activeCompany?.salesEntryMode;
+  const isPOS    = salesEntryMode === 'POS';
+  const isImport = salesEntryMode === 'Document Upload';
+  const isBoth   = salesEntryMode === 'Both';
 
   const load = useCallback(async () => {
     if (!activeCompanyId) return;
@@ -800,8 +802,11 @@ export default function SalesPage() {
 
   const filtered = sales.filter((s) => {
     if (statusFilter && s.status !== statusFilter) return false;
-    if (sourceFilter === 'import' && s.entrySource !== 'import') return false;
-    if (sourceFilter === 'pos'    && s.entrySource === 'import') return false;
+    if (isImport && s.entrySource !== 'import') return false;
+    if (isBoth) {
+      if (sourceFilter === 'import' && s.entrySource !== 'import') return false;
+      if (sourceFilter === 'pos'    && s.entrySource === 'import') return false;
+    }
     if (customerSearch) {
       const name = (s.customerSnapshot?.name ?? '').toLowerCase();
       if (!name.includes(customerSearch.toLowerCase())) return false;
@@ -816,26 +821,61 @@ export default function SalesPage() {
     setPayTarget(null);
   }
 
+  // ── Sales Entry Mode not configured yet ───────────────────────────────────
+  if (activeCompany && !modeSet) {
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold text-gray-900">Sales</h1>
+          <BizTypeBadge businessType={businessType} />
+        </div>
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-6 py-10 text-center">
+          <p className="text-base font-semibold text-amber-800">Sales Entry Mode not configured</p>
+          <p className="mt-1 text-sm text-amber-700">
+            Set your preferred sales entry mode in Company Profile to get started.
+          </p>
+          <Link to="/company/profile"
+            className="mt-4 inline-block rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 transition">
+            Go to Company Profile
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Main page ─────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col gap-6">
+
+      {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-gray-900">Sales &amp; Invoices</h1>
+            <h1 className="text-2xl font-bold text-gray-900">
+              {isImport ? 'Sales — Import Mode' : 'Sales & Invoices'}
+            </h1>
             <BizTypeBadge businessType={businessType} />
           </div>
-          <p className="text-sm text-gray-500">All invoices for the active company.</p>
+          <p className="text-sm text-gray-500">
+            {isImport
+              ? 'Import sales reports from your POS system.'
+              : 'All invoices for the active company.'}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {showPOS && (
+          {(isPOS || isBoth) && (
             <Link to="/sales/new"
               className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700 transition">
-              + New Sale
+              {isBoth ? '+ New Sale (POS)' : '+ New Sale'}
             </Link>
           )}
-          {showImport && (
+          {(isImport || isBoth) && (
             <button type="button" onClick={() => setImportOpen(true)}
-              className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition">
+              className={`rounded-md border px-3 py-1.5 text-sm font-semibold transition ${
+                isImport
+                  ? 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700'
+                  : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+              }`}>
               Import Sales Report
             </button>
           )}
@@ -856,10 +896,12 @@ export default function SalesPage() {
           className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500">
           {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
-        <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500">
-          {SOURCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
+        {isBoth && (
+          <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}
+            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500">
+            {SOURCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        )}
         <button type="button" onClick={load}
           className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition">
           Refresh
@@ -871,12 +913,25 @@ export default function SalesPage() {
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
       )}
 
+      {/* Sales table */}
       <div className="rounded-xl border border-gray-200 bg-white">
         {loading ? (
           <div className="flex items-center justify-center py-12"><LoadingSpinner /></div>
         ) : filtered.length === 0 ? (
-          <div className="px-4 py-12 text-center text-sm text-gray-400">
-            {sales.length === 0 ? 'No invoices yet.' : 'No invoices match the filters.'}
+          <div className="px-4 py-12 text-center">
+            <p className="text-sm text-gray-400">
+              {sales.length === 0
+                ? isImport
+                  ? 'No imported sales yet.'
+                  : 'No invoices yet.'
+                : 'No invoices match the filters.'}
+            </p>
+            {sales.length === 0 && isImport && (
+              <button type="button" onClick={() => setImportOpen(true)}
+                className="mt-3 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition">
+                Import Sales Report
+              </button>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -890,7 +945,7 @@ export default function SalesPage() {
                   <th className="px-4 py-2 text-right">Paid</th>
                   <th className="px-4 py-2 text-right">Balance</th>
                   <th className="px-4 py-2">Mode</th>
-                  <th className="px-4 py-2">Source</th>
+                  {isBoth && <th className="px-4 py-2">Source</th>}
                   <th className="px-4 py-2">Status</th>
                   <th className="px-4 py-2"></th>
                 </tr>
@@ -913,7 +968,7 @@ export default function SalesPage() {
                       {sale.balanceDue > 0 ? formatCurrency(sale.balanceDue) : '—'}
                     </td>
                     <td className="px-4 py-2 text-xs text-gray-600">{sale.paymentMode}</td>
-                    <td className="px-4 py-2"><SourceBadge entrySource={sale.entrySource} /></td>
+                    {isBoth && <td className="px-4 py-2"><SourceBadge entrySource={sale.entrySource} /></td>}
                     <td className="px-4 py-2"><PaymentStatusBadge status={sale.status} /></td>
                     <td className="px-4 py-2">
                       <div className="flex justify-end gap-2 text-xs">
