@@ -6,6 +6,12 @@ import { useApp } from '../context/AppContext';
 import { useRole } from '../hooks/useRole';
 import { listSales, createSale, SALE_STATUS, PAYMENT_MODES } from '../services/saleService';
 import { writeSalesItems } from '../services/salesItemService';
+import {
+  extractTextFromPDF,
+  buildPdfMappingPrompt,
+  parsePdfRows,
+  extractDateRangeFromText,
+} from '../services/saleImportService';
 import { BUSINESS_TYPES } from '../services/companyService';
 import { startOfDay, endOfDay, toJsDate } from '../utils/dateUtils';
 import { formatCurrency } from '../utils/format';
@@ -129,25 +135,6 @@ Return ONLY a JSON object mapping each field to the best matching column name, o
 {"itemName":null,"quantity":null,"unitPrice":null,"totalAmount":null,"date":null,"paymentMode":null}`;
 }
 
-function buildPdfSalesPrompt() {
-  return `This is a multi-page restaurant POS sales report PDF.
-Columns in order: Taxable, Restaurant, Category, Item, Qty, My Amount, Discount, Tax, Gross Sales.
-
-Extract every ITEM row. Skip rows that are totals or statistics (labelled "Total", "Grand Total", "Min", "Max", "Avg") and rows with a blank Item name.
-
-For each valid item row return exactly:
-- itemName: value from the "Item" column
-- category: value from "Category" (use "Food" if blank)
-- quantity: number from "Qty" (no commas)
-- myAmount: number from "My Amount" (no commas or currency symbols)
-- tax: number from "Tax" (0 if blank)
-- grossSales: number from "Gross Sales" (no commas or currency symbols)
-
-Also find the date range in the report header (e.g. "01/04/2026 to 26/04/2026") and return it as dateFrom and dateTo in YYYY-MM-DD format. Use empty strings if not found.
-
-Return ONLY this exact JSON structure (no markdown, no explanation):
-{"dateFrom":"","dateTo":"","items":[{"itemName":"Filter Coffee","category":"Traditional Coffee","quantity":1604,"myAmount":61112.39,"tax":3055.42,"grossSales":64167.81}]}`;
-}
 
 function toBase64(file) {
   return new Promise((resolve, reject) => {
@@ -233,6 +220,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
   const [pdfRangeFrom,   setPdfRangeFrom]   = useState('');
   const [reportDateFrom, setReportDateFrom] = useState('');
   const [reportDateTo,   setReportDateTo]   = useState('');
+  const [pdfProgress,    setPdfProgress]    = useState('');
 
   useEffect(() => {
     if (open) return;
@@ -243,6 +231,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     setRetryMsg('');
     setPdfDateStep(false); setPdfDetected(''); setImportDate(''); setPendingRows([]);
     setPdfRangeFrom(''); setReportDateFrom(''); setReportDateTo('');
+    setPdfProgress('');
   }, [open]);
 
   function updateRow(id, field, val) {
@@ -278,65 +267,55 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     const isPdf     = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
     const isCsvText = /\.(csv|txt)$/i.test(file.name) || file.type.startsWith('text/');
 
-    // ── PDF path: Vision API + restaurant-report-specific prompt + date step ──
+    // ── PDF path: local text extraction + 1 Gemini call for column mapping ──
     if (isPdf) {
       setExtracting(true);
       setExtractErr('');
       setRows([]);
       try {
-        const base64 = await toBase64(file);
-        console.log(`PDF → Gemini [${(base64.length * 0.75 / 1024).toFixed(1)} KB]`);
-        const raw = await geminiExtract(
-          [
-            { inlineData: { mimeType: 'application/pdf', data: base64 } },
-            { text: buildPdfSalesPrompt() },
-          ],
+        // Step 1 — extract text from PDF locally
+        setPdfProgress('Step 1/3: Extracting text from PDF…');
+        const fullText   = await extractTextFromPDF(file);
+        const sampleText = fullText.slice(0, 500);
+        console.log('PDF text sample:', sampleText);
+
+        // Step 2 — one Gemini call to identify column headers
+        setPdfProgress('Step 2/3: AI identifying columns (1 API call)…');
+        await new Promise((r) => setTimeout(r, 3000));
+        const mappingRaw = await geminiExtract(
+          [{ text: buildPdfMappingPrompt(sampleText) }],
           setRetryMsg,
         );
-        console.log('EXACT RAW RESPONSE:', JSON.stringify(raw));
+        console.log('Column mapping response:', mappingRaw);
 
-        const objMatch = raw.match(/\{[\s\S]*\}/);
-        if (!objMatch) throw new Error('AI could not read this PDF. Please check the file and try again.');
-        let result;
-        try { result = JSON.parse(objMatch[0]); }
-        catch { throw new Error('AI could not read this PDF. Please check the file and try again.'); }
+        let mapping = {};
+        const objMatch = mappingRaw.match(/\{[\s\S]*\}/);
+        if (objMatch) { try { mapping = JSON.parse(objMatch[0]); } catch { /* fall through */ } }
 
-        const items = Array.isArray(result.items) ? result.items : [];
-        if (!items.length) throw new Error('No item rows found in this PDF. Please check the file and try again.');
+        // Step 3 — parse all rows locally
+        const pending = parsePdfRows(fullText, mapping);
+        setPdfProgress(`Step 3/3: Processing ${pending.length} rows locally…`);
+        if (!pending.length) throw new Error('No item rows found in this PDF. Please check the file and try again.');
 
-        const today   = new Date().toISOString().slice(0, 10);
-        const pending = items
-          .filter((it) => it.itemName)
-          .map((it) => {
-            const qty       = Number(it.quantity)  || 1;
-            const myAmount  = Number(it.myAmount)  || 0;
-            const tax       = Number(it.tax)       || 0;
-            const unitPrice = qty > 0 ? myAmount / qty : 0;
-            const gstRate   = myAmount > 0 ? (tax / myAmount * 100) : 0;
-            return {
-              id:           Math.random().toString(36).slice(2),
-              date:         today,
-              customerName: 'Walk-in',
-              lineItems:    [{ itemName: String(it.itemName).trim(), quantity: qty, unitPrice, gstRate }],
-              paymentMode:  'Cash',
-              notes:        String(it.category || '').trim(),
-            };
-          });
-        if (!pending.length) throw new Error('No valid items could be extracted. Please check the file.');
+        const today              = new Date().toISOString().slice(0, 10);
+        const { dateFrom, dateTo } = extractDateRangeFromText(fullText);
 
         setPendingRows(pending);
-        setPdfRangeFrom(result.dateFrom || '');
+        setPdfRangeFrom(dateFrom || '');
         setPdfDetected(
-          result.dateFrom && result.dateTo
-            ? `${formatISODate(result.dateFrom)} to ${formatISODate(result.dateTo)}`
-            : formatISODate(result.dateFrom || result.dateTo),
+          dateFrom && dateTo
+            ? `${formatISODate(dateFrom)} to ${formatISODate(dateTo)}`
+            : formatISODate(dateFrom || dateTo),
         );
-        setImportDate(result.dateTo || result.dateFrom || today);
+        setImportDate(dateTo || dateFrom || today);
+        setPdfProgress(`Done! ${pending.length} items found.`);
+        await new Promise((r) => setTimeout(r, 700));
         setPdfDateStep(true);
       } catch (e) {
         setExtractErr(e.message ?? 'PDF extraction failed.');
       } finally {
         setExtracting(false);
+        setPdfProgress('');
         setRetryMsg('');
       }
       return;
@@ -683,9 +662,15 @@ function ImportModal({ open, onClose, companyId, onImported }) {
                   <button type="button" onClick={handleExtractFile}
                     disabled={!file || extracting}
                     className="flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40 transition">
-                    {extracting && <LoadingSpinner size="sm" />}
-                    {extracting ? 'Extracting…' : 'Extract with AI'}
+                    {extracting && !pdfProgress && <LoadingSpinner size="sm" />}
+                    {extracting && !pdfProgress ? 'Extracting…' : 'Extract with AI'}
                   </button>
+                  {extracting && pdfProgress && (
+                    <div className="flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5 text-sm text-blue-700">
+                      <LoadingSpinner size="sm" />
+                      <span>{pdfProgress}</span>
+                    </div>
+                  )}
                   {retryMsg && <p className="text-sm font-medium text-amber-600">{retryMsg}</p>}
                 </div>
               ) : (
