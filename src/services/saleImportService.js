@@ -6,7 +6,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import * as pdfjsLib from 'pdfjs-dist';
-import PDFWorker from 'pdfjs-dist/build/pdf.worker.min.js?url';
+import PDFWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = PDFWorker;
 
