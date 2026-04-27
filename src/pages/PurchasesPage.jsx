@@ -10,6 +10,7 @@ import RoleGuard from '../components/RoleGuard';
 import PaymentStatusBadge from '../components/sales/PaymentStatusBadge';
 import PayablePaymentModal from '../components/purchases/PayablePaymentModal';
 import DeleteRecordModal from '../components/DeleteRecordModal';
+import BulkDeleteModal from '../components/BulkDeleteModal';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All statuses' },
@@ -36,8 +37,10 @@ export default function PurchasesPage() {
   const [vendorSearch, setVendorSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
-  const [payTarget,    setPayTarget]    = useState(null);
-  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [payTarget,      setPayTarget]      = useState(null);
+  const [deleteTarget,   setDeleteTarget]   = useState(null);
+  const [selectedIds,    setSelectedIds]    = useState(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!activeCompanyId) return;
@@ -69,6 +72,33 @@ export default function PurchasesPage() {
   function applyPaymentToRow(updated, purchaseId) {
     setPurchases((prev) => prev.map((p) => (p.purchaseId === purchaseId ? { ...p, ...updated } : p)));
     setPayTarget(null);
+  }
+
+  const selectedRecords     = filtered.filter((p) => selectedIds.has(p.purchaseId));
+  const allFilteredSelected = filtered.length > 0 && filtered.every((p) => selectedIds.has(p.purchaseId));
+
+  function toggleSelect(id) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (allFilteredSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        filtered.forEach((p) => next.delete(p.purchaseId));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        filtered.forEach((p) => next.add(p.purchaseId));
+        return next;
+      });
+    }
   }
 
   return (
@@ -106,6 +136,23 @@ export default function PurchasesPage() {
 
       {error && <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
+      {/* Bulk action bar */}
+      {isAdmin && selectedRecords.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+          <span className="text-sm font-medium text-red-800">
+            {selectedRecords.length} {selectedRecords.length === 1 ? 'record' : 'records'} selected
+          </span>
+          <button type="button" onClick={() => setBulkDeleteOpen(true)}
+            className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700 transition">
+            Delete Selected
+          </button>
+          <button type="button" onClick={() => setSelectedIds(new Set())}
+            className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 transition">
+            Clear Selection
+          </button>
+        </div>
+      )}
+
       <div className="rounded-xl border border-gray-200 bg-white">
         {loading ? (
           <div className="flex items-center justify-center py-12"><LoadingSpinner /></div>
@@ -118,6 +165,16 @@ export default function PurchasesPage() {
             <table className="w-full text-left text-sm">
               <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
                 <tr>
+                  {isAdmin && (
+                    <th className="w-8 px-3 py-2">
+                      <input
+                        type="checkbox"
+                        checked={allFilteredSelected}
+                        onChange={toggleSelectAll}
+                        className="h-3.5 w-3.5 cursor-pointer rounded border-gray-400 accent-red-600"
+                      />
+                    </th>
+                  )}
                   <th className="px-4 py-2">Bill #</th>
                   <th className="px-4 py-2">Date</th>
                   <th className="px-4 py-2">Vendor</th>
@@ -131,7 +188,17 @@ export default function PurchasesPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filtered.map((p) => (
-                  <tr key={p.purchaseId} className="hover:bg-gray-50">
+                  <tr key={p.purchaseId} className={`hover:bg-gray-50 ${selectedIds.has(p.purchaseId) ? 'bg-red-50' : ''}`}>
+                    {isAdmin && (
+                      <td className="px-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(p.purchaseId)}
+                          onChange={() => toggleSelect(p.purchaseId)}
+                          className="h-3.5 w-3.5 cursor-pointer rounded border-gray-400 accent-red-600"
+                        />
+                      </td>
+                    )}
                     <td className="px-4 py-2 font-mono text-xs text-gray-700">{p.billNumber}</td>
                     <td className="px-4 py-2 text-gray-600">{fmtDate(p.date)}</td>
                     <td className="px-4 py-2 font-medium text-gray-800">{p.vendorSnapshot?.name ?? '—'}</td>
@@ -190,6 +257,20 @@ export default function PurchasesPage() {
         }}
         companyId={activeCompanyId}
         record={deleteTarget}
+        recordType="purchase"
+        user={user}
+      />
+
+      <BulkDeleteModal
+        open={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+        onDeleted={(ids) => {
+          setPurchases((prev) => prev.filter((p) => !ids.includes(p.purchaseId)));
+          setSelectedIds(new Set());
+          setBulkDeleteOpen(false);
+        }}
+        companyId={activeCompanyId}
+        records={selectedRecords}
         recordType="purchase"
         user={user}
       />

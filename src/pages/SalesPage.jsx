@@ -13,6 +13,7 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import PaymentStatusBadge from '../components/sales/PaymentStatusBadge';
 import PaymentModal from '../components/sales/PaymentModal';
 import DeleteRecordModal from '../components/DeleteRecordModal';
+import BulkDeleteModal from '../components/BulkDeleteModal';
 
 const BT_COLORS = {
   'F&B':           'bg-orange-50 text-orange-700 border-orange-200',
@@ -823,7 +824,9 @@ export default function SalesPage() {
   const isImport = salesEntryMode === 'Document Upload';
   const isBoth   = salesEntryMode === 'Both';
 
-  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteTarget,   setDeleteTarget]   = useState(null);
+  const [selectedIds,    setSelectedIds]    = useState(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!activeCompanyId) return;
@@ -865,6 +868,33 @@ export default function SalesPage() {
       prev.map((s) => (s.saleId === saleId ? { ...s, ...updatedFields } : s)),
     );
     setPayTarget(null);
+  }
+
+  const selectedRecords     = filtered.filter((s) => selectedIds.has(s.saleId));
+  const allFilteredSelected = filtered.length > 0 && filtered.every((s) => selectedIds.has(s.saleId));
+
+  function toggleSelect(id) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (allFilteredSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        filtered.forEach((s) => next.delete(s.saleId));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        filtered.forEach((s) => next.add(s.saleId));
+        return next;
+      });
+    }
   }
 
   // ── Sales Entry Mode not configured yet ───────────────────────────────────
@@ -965,6 +995,23 @@ export default function SalesPage() {
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
       )}
 
+      {/* Bulk action bar */}
+      {isAdmin && selectedRecords.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+          <span className="text-sm font-medium text-red-800">
+            {selectedRecords.length} {selectedRecords.length === 1 ? 'record' : 'records'} selected
+          </span>
+          <button type="button" onClick={() => setBulkDeleteOpen(true)}
+            className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700 transition">
+            Delete Selected
+          </button>
+          <button type="button" onClick={() => setSelectedIds(new Set())}
+            className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 transition">
+            Clear Selection
+          </button>
+        </div>
+      )}
+
       {/* Sales table */}
       <div className="rounded-xl border border-gray-200 bg-white">
         {loading ? (
@@ -990,6 +1037,16 @@ export default function SalesPage() {
             <table className="w-full text-left text-sm">
               <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
                 <tr>
+                  {isAdmin && (
+                    <th className="w-8 px-3 py-2">
+                      <input
+                        type="checkbox"
+                        checked={allFilteredSelected}
+                        onChange={toggleSelectAll}
+                        className="h-3.5 w-3.5 cursor-pointer rounded border-gray-400 accent-red-600"
+                      />
+                    </th>
+                  )}
                   <th className="px-4 py-2">Invoice #</th>
                   <th className="px-4 py-2">Date</th>
                   <th className="px-4 py-2">Customer</th>
@@ -1004,7 +1061,17 @@ export default function SalesPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filtered.map((sale) => (
-                  <tr key={sale.saleId} className="hover:bg-gray-50">
+                  <tr key={sale.saleId} className={`hover:bg-gray-50 ${selectedIds.has(sale.saleId) ? 'bg-red-50' : ''}`}>
+                    {isAdmin && (
+                      <td className="px-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(sale.saleId)}
+                          onChange={() => toggleSelect(sale.saleId)}
+                          className="h-3.5 w-3.5 cursor-pointer rounded border-gray-400 accent-red-600"
+                        />
+                      </td>
+                    )}
                     <td className="px-4 py-2 font-mono text-xs text-gray-700">{sale.invoiceNumber}</td>
                     <td className="px-4 py-2 text-gray-600">{fmtDate(sale.date)}</td>
                     <td className="px-4 py-2 font-medium text-gray-800">
@@ -1081,6 +1148,20 @@ export default function SalesPage() {
         }}
         companyId={activeCompanyId}
         record={deleteTarget}
+        recordType="sale"
+        user={user}
+      />
+
+      <BulkDeleteModal
+        open={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+        onDeleted={(ids) => {
+          setSales((prev) => prev.filter((s) => !ids.includes(s.saleId)));
+          setSelectedIds(new Set());
+          setBulkDeleteOpen(false);
+        }}
+        companyId={activeCompanyId}
+        records={selectedRecords}
         recordType="sale"
         user={user}
       />

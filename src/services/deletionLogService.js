@@ -9,6 +9,7 @@ import {
   orderBy,
   Timestamp,
   serverTimestamp,
+  writeBatch,
 } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -54,6 +55,42 @@ export async function deleteFirestoreRecord(companyId, recordType, recordId) {
   const colName  = recordType === 'sale' ? 'sales' : 'purchases';
   const colRef   = collection(db, 'companies', companyId, colName);
   await deleteDoc(doc(colRef, recordId));
+}
+
+export async function createBulkDeletionLog(companyId, {
+  recordType,
+  recordIds,
+  invoiceNumbers,
+  totalAmount,
+  deletedBy,
+  reason,
+  notes,
+  records,
+}) {
+  const preview = invoiceNumbers.slice(0, 3).join(', ') +
+    (invoiceNumbers.length > 3 ? ` +${invoiceNumbers.length - 3} more` : '');
+  await addDoc(logsCol(companyId), {
+    isBulk:        true,
+    recordType,
+    recordIds,
+    invoiceNumbers,
+    recordCount:   recordIds.length,
+    invoiceNumber: preview,
+    amount:        Number(totalAmount) || 0,
+    deletedBy,
+    reason,
+    notes:         notes ?? '',
+    originalData:  JSON.stringify(records),
+    deletedAt:     serverTimestamp(),
+  });
+}
+
+export async function bulkDeleteFirestoreRecords(companyId, recordType, recordIds) {
+  const colName = recordType === 'sale' ? 'sales' : 'purchases';
+  const colRef  = collection(db, 'companies', companyId, colName);
+  const batch   = writeBatch(db);
+  recordIds.forEach((id) => batch.delete(doc(colRef, id)));
+  await batch.commit();
 }
 
 export async function listDeletionLogs(companyId) {
