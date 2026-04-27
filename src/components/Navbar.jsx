@@ -18,20 +18,20 @@ const BT_COLORS = {
 
 const NAV_LINKS = [
   { to: '/dashboard', label: 'Dashboard' },
-  { to: '/inventory',  label: 'Inventory'  },
-  { to: '/sales',      label: 'Sales'      },
-  { to: '/purchases',  label: 'Purchases'  },
-  { to: '/expenses',   label: 'Expenses'   },
-  { to: '/payables',   label: 'Payables'   },
-  { to: '/gst',        label: 'GST'        },
-  { to: '/reports',    label: 'Reports'    },
+  { to: '/sales',     label: 'Sales'     },
+  { to: '/purchases', label: 'Purchases' },
+  { to: '/expenses',  label: 'Expenses'  },
+  { to: '/inventory', label: 'Inventory' },
+  { to: '/gst',       label: 'GST'       },
+  { to: '/reports',   label: 'Reports'   },
 ];
 
 const ACCOUNTS_LINKS = [
-  { to: '/accounts',       label: 'Chart of Accounts' },
-  { to: '/ledger',         label: 'Account Ledger'    },
-  { to: '/journal',        label: 'Journal Entries'   },
-  { to: '/trial-balance',  label: 'Trial Balance'     },
+  { to: '/payables',      label: 'Payables'          },
+  { to: '/accounts',      label: 'Chart of Accounts' },
+  { to: '/ledger',        label: 'Account Ledger'    },
+  { to: '/journal',       label: 'Journal Entries'   },
+  { to: '/trial-balance', label: 'Trial Balance'     },
 ];
 
 const ACCOUNTS_PREFIXES = ACCOUNTS_LINKS.map((l) => l.to);
@@ -162,7 +162,7 @@ function AccountsDropdown() {
 }
 
 export default function Navbar() {
-  const { user, activeCompany, isConsolidated, isParentCompany, toggleConsolidated, salesEntryMode } = useApp();
+  const { user, activeCompany, isConsolidated, isParentCompany, toggleConsolidated } = useApp();
   const { role } = useRole();
   const businessType = activeCompany?.businessType;
   const navigate = useNavigate();
@@ -195,22 +195,8 @@ export default function Navbar() {
                 {link.label}
               </NavLink>
             ))}
-            {(salesEntryMode === 'Document Upload' || salesEntryMode === 'Both') && (
-              <NavLink
-                to="/sales/import"
-                className={({ isActive }) =>
-                  `rounded-md px-3 py-1.5 text-sm transition ${
-                    isActive
-                      ? 'bg-blue-50 text-blue-700 font-medium'
-                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                  }`
-                }
-              >
-                Import Sales
-              </NavLink>
-            )}
             <AccountsDropdown />
-            <FnbDropdown />
+            {businessType === 'F&B' && <FnbDropdown />}
           </nav>
         </div>
 
