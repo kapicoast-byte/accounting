@@ -75,42 +75,55 @@ function fmtDate(ts) {
 
 // ── Gemini AI extraction ───────────────────────────────────────────────────────
 
+let geminiCallInProgress = false;
+
 async function geminiExtract(parts, onRetry, retries = 3, delayMs = 10000) {
+  if (geminiCallInProgress) {
+    throw new Error('Please wait, AI is processing…');
+  }
+  geminiCallInProgress = true;
   const key = import.meta.env.VITE_GEMINI_API_KEY;
-  if (!key) throw new Error('Gemini API key not configured (VITE_GEMINI_API_KEY).');
-  for (let attempt = 0; attempt < retries; attempt++) {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts }] }),
-      },
-    );
-    if (res.ok) {
-      const data = await res.json();
-      const raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-      console.log('Raw Gemini response:', raw);
-      return raw;
+  if (!key) {
+    geminiCallInProgress = false;
+    throw new Error('Gemini API key not configured (VITE_GEMINI_API_KEY).');
+  }
+  try {
+    for (let attempt = 0; attempt < retries; attempt++) {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ parts }] }),
+        },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+        console.log('Raw Gemini response:', raw);
+        return raw;
+      }
+      const errBody = await res.json().catch(() => ({}));
+      const msg   = errBody?.error?.message ?? `Gemini error ${res.status}`;
+      const is429 = res.status === 429 || msg.includes('Resource exhausted');
+      if (!is429 || attempt >= retries - 1) throw new Error(msg);
+      if (onRetry) {
+        let secs = Math.round(delayMs / 1000);
+        onRetry(`AI is busy, retrying in ${secs} seconds…`);
+        await new Promise((resolve) => {
+          const iv = setInterval(() => {
+            secs--;
+            if (secs <= 0) { clearInterval(iv); resolve(); }
+            else onRetry(`AI is busy, retrying in ${secs} seconds…`);
+          }, 1000);
+        });
+        onRetry('');
+      } else {
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
     }
-    const errBody = await res.json().catch(() => ({}));
-    const msg   = errBody?.error?.message ?? `Gemini error ${res.status}`;
-    const is429 = res.status === 429 || msg.includes('Resource exhausted');
-    if (!is429 || attempt >= retries - 1) throw new Error(msg);
-    if (onRetry) {
-      let secs = Math.round(delayMs / 1000);
-      onRetry(`AI is busy, retrying in ${secs} seconds…`);
-      await new Promise((resolve) => {
-        const iv = setInterval(() => {
-          secs--;
-          if (secs <= 0) { clearInterval(iv); resolve(); }
-          else onRetry(`AI is busy, retrying in ${secs} seconds…`);
-        }, 1000);
-      });
-      onRetry('');
-    } else {
-      await new Promise((r) => setTimeout(r, delayMs));
-    }
+  } finally {
+    geminiCallInProgress = false;
   }
 }
 
@@ -276,8 +289,20 @@ function ImportModal({ open, onClose, companyId, onImported }) {
         // Step 1 — extract text from PDF locally
         setPdfProgress('Step 1/3: Extracting text from PDF…');
         const fullText   = await extractTextFromPDF(file);
-        const sampleText = fullText.slice(0, 500);
+        const sampleText = fullText.trim().slice(0, 500);
         console.log('PDF text sample:', sampleText);
+
+        // Fallback: if pdfjs couldn't extract text (scanned/image PDF), send to Gemini as document
+        if (!sampleText) {
+          setPdfProgress('Step 2/3: No text found — using AI vision fallback…');
+          const base64  = await toBase64(file);
+          const today   = new Date().toISOString().slice(0, 10);
+          await doExtract([
+            { text: buildPrompt(today) },
+            { inlineData: { mimeType: 'application/pdf', data: base64 } },
+          ]);
+          return;
+        }
 
         // Step 2 — one Gemini call to identify column headers
         setPdfProgress('Step 2/3: AI identifying columns (1 API call)…');

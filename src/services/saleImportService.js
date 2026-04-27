@@ -6,9 +6,9 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import * as pdfjsLib from 'pdfjs-dist';
+import PDFWorker from 'pdfjs-dist/build/pdf.worker.min.js?url';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc =
-  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+pdfjsLib.GlobalWorkerOptions.workerSrc = PDFWorker;
 
 // ─── PDF text extraction ───────────────────────────────────────────────────────
 
@@ -42,7 +42,10 @@ export async function extractTextFromPDF(file) {
       )
       .filter(l => l.trim());
 
-    fullText += pageLines.join('\n') + '\n';
+    const pageText = pageLines.join('\n') + '\n';
+    console.log(`Page ${pageNum} text length:`, pageText.length);
+    console.log(`Page ${pageNum} sample:`, pageText.substring(0, 200));
+    fullText += pageText;
   }
 
   return fullText;
@@ -169,10 +172,12 @@ function parseImportDate(str) {
   if (dmyMatch) {
     const [, d, m, y] = dmyMatch;
     const year = y.length === 2 ? `20${y}` : y;
-    const date = new Date(`${year}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`);
+    const date = new Date(`${year}-${m.padStart(2,'0')}-${d.padStart(2,'0')}T12:00:00`);
     if (!isNaN(date.getTime())) return Timestamp.fromDate(date);
   }
-  const date = new Date(cleaned);
+  // Append T12:00:00 so date strings like "YYYY-MM-DD" parse as local noon, not UTC midnight
+  const isoDate = cleaned.match(/^\d{4}-\d{2}-\d{2}$/) ? cleaned + 'T12:00:00' : cleaned;
+  const date = new Date(isoDate);
   if (!isNaN(date.getTime())) return Timestamp.fromDate(date);
   return Timestamp.now();
 }
