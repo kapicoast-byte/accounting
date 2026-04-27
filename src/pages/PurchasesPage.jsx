@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
+import { useRole } from '../hooks/useRole';
 import { listPurchases, PURCHASE_STATUS } from '../services/purchaseService';
 import { startOfDay, endOfDay, toJsDate } from '../utils/dateUtils';
 import { formatCurrency } from '../utils/format';
@@ -8,6 +9,7 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import RoleGuard from '../components/RoleGuard';
 import PaymentStatusBadge from '../components/sales/PaymentStatusBadge';
 import PayablePaymentModal from '../components/purchases/PayablePaymentModal';
+import DeleteRecordModal from '../components/DeleteRecordModal';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All statuses' },
@@ -22,7 +24,8 @@ function fmtDate(ts) {
 }
 
 export default function PurchasesPage() {
-  const { activeCompanyId } = useApp();
+  const { activeCompanyId, user } = useApp();
+  const { isAdmin } = useRole();
 
   const [purchases, setPurchases] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -33,7 +36,8 @@ export default function PurchasesPage() {
   const [vendorSearch, setVendorSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
-  const [payTarget, setPayTarget] = useState(null);
+  const [payTarget,    setPayTarget]    = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
   const load = useCallback(async () => {
     if (!activeCompanyId) return;
@@ -146,6 +150,19 @@ export default function PurchasesPage() {
                           <button type="button" onClick={() => setPayTarget(p)}
                             className="rounded-md border border-green-300 bg-white px-2 py-1 text-green-700 hover:bg-green-50">Pay</button>
                         )}
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget(p)}
+                            title="Delete record"
+                            className="flex items-center gap-1 rounded-md border border-red-200 bg-white px-2 py-1 text-red-600 hover:bg-red-50"
+                          >
+                            <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                            </svg>
+                            Delete
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -162,6 +179,19 @@ export default function PurchasesPage() {
         purchase={payTarget}
         onClose={() => setPayTarget(null)}
         onPaid={(updated) => applyPaymentToRow(updated, payTarget?.purchaseId)}
+      />
+
+      <DeleteRecordModal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onDeleted={(id) => {
+          setPurchases((prev) => prev.filter((p) => p.purchaseId !== id));
+          setDeleteTarget(null);
+        }}
+        companyId={activeCompanyId}
+        record={deleteTarget}
+        recordType="purchase"
+        user={user}
       />
     </div>
   );

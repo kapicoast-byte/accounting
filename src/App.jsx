@@ -35,6 +35,8 @@ import WastagePage from './pages/WastagePage';
 import ProductionPage from './pages/ProductionPage';
 import MenuMasterPage from './pages/MenuMasterPage';
 import SalesInsightsPage from './pages/SalesInsightsPage';
+import SalesImportPage from './pages/SalesImportPage';
+import DeletionLogsPage from './pages/admin/DeletionLogsPage';
 
 export default function App() {
   return (
@@ -54,6 +56,7 @@ export default function App() {
                 <Route path="/sales" element={<SalesPage />} />
                 <Route path="/sales/new" element={<CreateInvoicePage />} />
                 <Route path="/sales/insights" element={<SalesInsightsPage />} />
+                <Route path="/sales/import" element={<SalesImportPage />} />
                 <Route path="/sales/:saleId" element={<ViewInvoicePage />} />
                 <Route path="/purchases" element={<PurchasesPage />} />
                 <Route path="/purchases/new" element={<CreatePurchasePage />} />
@@ -82,6 +85,11 @@ export default function App() {
                 <Route path="/recipes" element={<RecipesPage />} />
                 <Route path="/wastage" element={<WastagePage />} />
                 <Route path="/production" element={<ProductionPage />} />
+
+                {/* Admin-only routes */}
+                <Route element={<RoleRequiredRoute permission="admin" message="Only admins can access this page." />}>
+                  <Route path="/admin/deletion-logs" element={<DeletionLogsPage />} />
+                </Route>
               </Route>
             </Route>
           </Route>
