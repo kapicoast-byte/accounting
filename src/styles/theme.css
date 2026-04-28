@@ -1,0 +1,63 @@
+/* ─── SmartBooks design tokens ──────────────────────────────────────────────
+   Import this file once (via index.css) to make all variables available
+   across every page. Scope dashboard-specific rules under .db-dark.
+────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* ── Dashboard dark palette ───────────────────────────────────────────── */
+  --db-bg:             oklch(0.17 0.012 250);
+  --db-card:           oklch(0.22 0.013 250);
+  --db-card-hover:     oklch(0.255 0.014 250);
+  --db-card-inset:     oklch(0.19 0.012 250);
+  --db-border:         oklch(0.30 0.013 250);
+  --db-border-subtle:  oklch(0.265 0.012 250);
+
+  /* ── Text hierarchy ───────────────────────────────────────────────────── */
+  --db-text:           oklch(0.93 0.005 250);
+  --db-text-2:         oklch(0.65 0.010 250);
+  --db-text-3:         oklch(0.45 0.008 250);
+
+  /* ── Semantic accents ─────────────────────────────────────────────────── */
+  --db-green:          oklch(0.74 0.15 155);
+  --db-green-dim:      oklch(0.74 0.15 155 / 0.13);
+  --db-red:            oklch(0.68 0.17 25);
+  --db-red-dim:        oklch(0.68 0.17 25 / 0.13);
+  --db-amber:          oklch(0.78 0.14 75);
+  --db-amber-dim:      oklch(0.78 0.14 75 / 0.13);
+  --db-blue:           oklch(0.68 0.15 240);
+  --db-blue-dim:       oklch(0.68 0.15 240 / 0.13);
+
+  /* ── Typography ───────────────────────────────────────────────────────── */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+
+/* ─── Reusable dark-card utility ──────────────────────────────────────────── */
+.db-card {
+  background:    var(--db-card);
+  border:        1px solid var(--db-border-subtle);
+  border-radius: 0.75rem;
+  transition:    background 0.15s ease, border-color 0.15s ease;
+}
+
+.db-card:hover {
+  background:    var(--db-card-hover);
+  border-color:  var(--db-border);
+}
+
+/* ─── Monospaced number spans ─────────────────────────────────────────────── */
+.db-num {
+  font-family: var(--font-mono);
+}
+
+/* ─── Skeleton pulse for dark backgrounds ────────────────────────────────── */
+@keyframes db-pulse {
+  0%, 100% { opacity: 0.4; }
+  50%       { opacity: 0.8; }
+}
+
+.db-skeleton {
+  background:  var(--db-border);
+  border-radius: 0.25rem;
+  animation: db-pulse 1.5s ease-in-out infinite;
+}
