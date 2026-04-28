@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Papa from 'papaparse';
+import * as XLSX from 'xlsx';
 import { Timestamp } from 'firebase/firestore';
 import { useApp } from '../context/AppContext';
 import { useRole } from '../hooks/useRole';
 import { listSales, createSale, SALE_STATUS, PAYMENT_MODES } from '../services/saleService';
 import { writeSalesItems } from '../services/salesItemService';
-import { extractTextFromPDF } from '../services/saleImportService';
+import {
+  extractTextFromPDF,
+  buildPdfMappingPrompt,
+  parsePdfRows,
+  extractDateRangeFromText,
+} from '../services/saleImportService';
 import { BUSINESS_TYPES } from '../services/companyService';
 import { startOfDay, endOfDay, toJsDate } from '../utils/dateUtils';
 import { formatCurrency } from '../utils/format';
@@ -68,6 +74,122 @@ function fmtDate(ts) {
   return d ? d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 }
 
+// ── Gemini AI extraction ───────────────────────────────────────────────────────
+
+let geminiCallInProgress = false;
+
+async function geminiExtract(parts, onRetry, retries = 3, delayMs = 10000) {
+  if (geminiCallInProgress) {
+    throw new Error('Please wait, AI is processing…');
+  }
+  geminiCallInProgress = true;
+  const key = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!key) {
+    geminiCallInProgress = false;
+    throw new Error('Gemini API key not configured (VITE_GEMINI_API_KEY).');
+  }
+  try {
+    for (let attempt = 0; attempt < retries; attempt++) {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ parts }] }),
+        },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+        console.log('Raw Gemini response:', raw);
+        return raw;
+      }
+      const errBody = await res.json().catch(() => ({}));
+      const msg   = errBody?.error?.message ?? `Gemini error ${res.status}`;
+      const is429 = res.status === 429 || msg.includes('Resource exhausted');
+      if (!is429 || attempt >= retries - 1) throw new Error(msg);
+      if (onRetry) {
+        let secs = Math.round(delayMs / 1000);
+        onRetry(`AI is busy, retrying in ${secs} seconds…`);
+        await new Promise((resolve) => {
+          const iv = setInterval(() => {
+            secs--;
+            if (secs <= 0) { clearInterval(iv); resolve(); }
+            else onRetry(`AI is busy, retrying in ${secs} seconds…`);
+          }, 1000);
+        });
+        onRetry('');
+      } else {
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+    }
+  } finally {
+    geminiCallInProgress = false;
+  }
+}
+
+function buildPrompt(today) {
+  return `Extract all sales transactions from this document. Today's date is ${today}.
+Return a JSON array. Each element must have:
+- date: "YYYY-MM-DD" (use today if not found)
+- customerName: string (use "Walk-in" if unknown)
+- lineItems: array of { itemName: string, quantity: number, unitPrice: number, gstRate: number }
+- paymentMode: one of "Cash","Card","UPI","Credit" (use "Cash" if unknown)
+- notes: string (use "" if none)
+Return ONLY a valid JSON array. No markdown, no explanation, no code blocks. Just raw JSON starting with [ and ending with ]`;
+}
+
+// Local column-name guesser — no Gemini needed for CSV/Excel
+function guessMapping(headers) {
+  const lower = headers.map((h) => String(h).toLowerCase().trim());
+  const find = (candidates) => {
+    for (const cand of candidates) {
+      const c = cand.toLowerCase();
+      let i = lower.findIndex((h) => h === c);
+      if (i !== -1) return headers[i];
+      i = lower.findIndex((h) => h.includes(c) || c.includes(h));
+      if (i !== -1) return headers[i];
+    }
+    return '';
+  };
+  return {
+    itemName:    find(['item_name', 'item', 'name', 'product', 'description']),
+    category:    find(['parent_category', 'category name', 'category', 'type']),
+    quantity:    find(['units sold', 'qty', 'quantity', 'units']),
+    totalAmount: find(['gross sales', 'gross_sales', 'total_amount', 'total', 'amount']),
+    taxAmount:   find(['tax_amount', 'tax amount', 'tax', 'gst']),
+    unitPrice:   find(['unit_price', 'my amount', 'price', 'rate']),
+    date:        find(['date', 'time', 'day']),
+    paymentMode: find(['payment', 'mode', 'method']),
+  };
+}
+
+function applyMappingToData(data, mapping, today) {
+  return data
+    .filter((row) => row[mapping.itemName])
+    .map((row) => {
+      const qty       = Number(row[mapping.quantity])    || 1;
+      const unitPrice = Number(row[mapping.unitPrice])   || 0;
+      return {
+        id:           Math.random().toString(36).slice(2),
+        date:         (mapping.date && row[mapping.date]) || today,
+        customerName: 'Walk-in',
+        lineItems:    [{ itemName: String(row[mapping.itemName] ?? '').trim() || 'Item', quantity: qty, unitPrice, gstRate: 0 }],
+        paymentMode:  normalisePaymentMode((mapping.paymentMode && row[mapping.paymentMode]) || ''),
+        notes:        '',
+      };
+    });
+}
+
+
+function toBase64(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload  = (e) => resolve(e.target.result.split(',')[1]);
+    fr.onerror = reject;
+    fr.readAsDataURL(file);
+  });
+}
 
 function formatISODate(d) {
   if (!d) return '';
@@ -83,6 +205,35 @@ function normalisePaymentMode(raw) {
   return 'Cash';
 }
 
+function normaliseRows(arr, today) {
+  return arr.map((item) => {
+    if (!item.lineItems && item.itemName) {
+      const qty       = Number(item.quantity)  || 1;
+      const unitPrice = Number(item.unitPrice) || 0;
+      return {
+        id:           Math.random().toString(36).slice(2),
+        date:         item.date || today,
+        customerName: item.customerName || 'Walk-in',
+        lineItems:    [{ itemName: String(item.itemName).trim() || 'Item', quantity: qty, unitPrice, gstRate: 0 }],
+        paymentMode:  normalisePaymentMode(item.paymentMode),
+        notes:        item.notes || '',
+      };
+    }
+    return {
+      id:           Math.random().toString(36).slice(2),
+      date:         item.date || today,
+      customerName: item.customerName || 'Walk-in',
+      lineItems:    (item.lineItems || []).map((l) => ({
+        itemName:  l.itemName  || 'Item',
+        quantity:  Number(l.quantity)  || 1,
+        unitPrice: Number(l.unitPrice) || 0,
+        gstRate:   Number(l.gstRate)   || 0,
+      })),
+      paymentMode: PAYMENT_MODES.includes(item.paymentMode) ? item.paymentMode : 'Cash',
+      notes:       item.notes || '',
+    };
+  });
+}
 
 function dateToTs(dateStr) {
   if (!dateStr) return Timestamp.now();
@@ -107,6 +258,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
   const [csvRawRows,    setCsvRawRows]    = useState([]);
   const [colMapping,    setColMapping]    = useState({});
   const [showColMapper, setShowColMapper] = useState(false);
+  const [retryMsg,       setRetryMsg]       = useState('');
   const [pdfDateStep,    setPdfDateStep]    = useState(false);
   const [pdfDetected,    setPdfDetected]    = useState('');
   const [importDate,     setImportDate]     = useState('');
@@ -122,6 +274,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     setExtractErr(''); setSaveErr(''); setSavedCount(null);
     setExtracting(false); setSaving(false); setTab('upload');
     setCsvHeaders([]); setCsvRawRows([]); setColMapping({}); setShowColMapper(false);
+    setRetryMsg('');
     setPdfDateStep(false); setPdfDetected(''); setImportDate(''); setPendingRows([]);
     setPdfRangeFrom(''); setReportDateFrom(''); setReportDateTo('');
     setPdfProgress('');
@@ -131,6 +284,28 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: val } : r)));
   }
 
+  async function doExtract(parts) {
+    setExtracting(true);
+    setExtractErr('');
+    setRows([]);
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const raw = await geminiExtract(parts, setRetryMsg);
+      console.log('EXACT RAW RESPONSE:', JSON.stringify(raw));
+      const match = raw.match(/\[[\s\S]*\]/);
+      if (!match) throw new Error('AI could not read this file format. Please check the file and try again.');
+      let arr;
+      try { arr = JSON.parse(match[0]); }
+      catch { throw new Error('AI could not read this file format. Please check the file and try again.'); }
+      if (!Array.isArray(arr)) throw new Error('AI could not read this file format. Please check the file and try again.');
+      setRows(normaliseRows(arr, today));
+    } catch (e) {
+      setExtractErr(e.message ?? 'Extraction failed.');
+    } finally {
+      setExtracting(false);
+      setRetryMsg('');
+    }
+  }
 
   async function handleExtractFile() {
     if (!file) return;
@@ -138,79 +313,138 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     const isPdf     = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
     const isCsvText = /\.(csv|txt)$/i.test(file.name) || file.type.startsWith('text/');
 
-    // ── PDF path: extract text locally with pdfjs, log to console ─────────────
+    // ── PDF path: local text extraction + 1 Gemini call for column mapping ──
     if (isPdf) {
       setExtracting(true);
       setExtractErr('');
       setRows([]);
-      setPdfProgress('Extracting text from PDF…');
       try {
-        const fullText = await extractTextFromPDF(file);
-        console.log('=== PDF EXTRACTED TEXT ===');
-        console.log(fullText);
-        console.log('=== END PDF TEXT ===');
-        if (!fullText.trim()) throw new Error('No text found in this PDF. It may be a scanned image PDF.');
-        setExtractErr(`PDF text extracted (${fullText.split('\n').length} lines) — check the browser console to inspect the format.`);
+        // Step 1 — extract text from PDF locally
+        setPdfProgress('Step 1/3: Extracting text from PDF…');
+        const fullText   = await extractTextFromPDF(file);
+        const sampleText = fullText.trim().slice(0, 500);
+        console.log('PDF text sample:', sampleText);
+
+        // Fallback: if pdfjs couldn't extract text (scanned/image PDF), send to Gemini as document
+        if (!sampleText) {
+          setPdfProgress('Step 2/3: No text found — using AI vision fallback…');
+          const base64  = await toBase64(file);
+          const today   = new Date().toISOString().slice(0, 10);
+          await doExtract([
+            { text: buildPrompt(today) },
+            { inlineData: { mimeType: 'application/pdf', data: base64 } },
+          ]);
+          return;
+        }
+
+        // Step 2 — one Gemini call to identify column headers
+        setPdfProgress('Step 2/3: AI identifying columns (1 API call)…');
+        await new Promise((r) => setTimeout(r, 3000));
+        const mappingRaw = await geminiExtract(
+          [{ text: buildPdfMappingPrompt(sampleText) }],
+          setRetryMsg,
+        );
+        console.log('Column mapping response:', mappingRaw);
+
+        let mapping = {};
+        const objMatch = mappingRaw.match(/\{[\s\S]*\}/);
+        if (objMatch) { try { mapping = JSON.parse(objMatch[0]); } catch { /* fall through */ } }
+
+        // Step 3 — parse all rows locally
+        const pending = parsePdfRows(fullText, mapping);
+        setPdfProgress(`Step 3/3: Processing ${pending.length} rows locally…`);
+        if (!pending.length) throw new Error('No item rows found in this PDF. Please check the file and try again.');
+
+        const today              = new Date().toISOString().slice(0, 10);
+        const { dateFrom, dateTo } = extractDateRangeFromText(fullText);
+
+        setPendingRows(pending);
+        setPdfRangeFrom(dateFrom || '');
+        setPdfDetected(
+          dateFrom && dateTo
+            ? `${formatISODate(dateFrom)} to ${formatISODate(dateTo)}`
+            : formatISODate(dateFrom || dateTo),
+        );
+        setImportDate(dateTo || dateFrom || today);
+        setPdfProgress(`Done! ${pending.length} items found.`);
+        await new Promise((r) => setTimeout(r, 700));
+        setPdfDateStep(true);
       } catch (e) {
-        setExtractErr(e.message ?? 'PDF text extraction failed.');
+        setExtractErr(e.message ?? 'PDF extraction failed.');
       } finally {
         setExtracting(false);
         setPdfProgress('');
+        setRetryMsg('');
       }
       return;
     }
 
-    // ── CSV / TXT path: parse locally, auto-map columns (no AI) ──────────────
-    if (isCsvText) {
+    // ── Excel path (.xlsx / .xls) ─────────────────────────────────────────────
+    const isExcel = /\.(xlsx|xls)$/i.test(file.name) ||
+      file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+      file.type === 'application/vnd.ms-excel';
+
+    if (isExcel) {
       setExtracting(true);
       setExtractErr('');
       setRows([]);
       try {
-        const content = await file.text();
-        const parsed  = Papa.parse(content, { header: true, skipEmptyLines: true });
-        if (!parsed.data.length) { setExtractErr('CSV file appears to be empty.'); return; }
-
-        const headers   = Object.keys(parsed.data[0]);
-        const autoGuess = (kws) => headers.find((h) => kws.some((k) => h.toLowerCase().includes(k))) ?? '';
-        const mapping   = {
-          itemName:    autoGuess(['item', 'name', 'product', 'dish', 'menu']),
-          quantity:    autoGuess(['qty', 'quantity', 'count', 'units']),
-          unitPrice:   autoGuess(['price', 'rate', 'unit']),
-          totalAmount: autoGuess(['total', 'net', 'gross', 'amount']),
-          date:        autoGuess(['date', 'time', 'day']),
-          paymentMode: autoGuess(['payment', 'mode', 'method']),
-        };
-
+        const ab      = await file.arrayBuffer();
+        const wb      = XLSX.read(ab, { type: 'array' });
+        const ws      = wb.Sheets[wb.SheetNames[0]];
+        const data    = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        if (!data.length) throw new Error('Excel file appears to be empty.');
+        const headers = Object.keys(data[0]);
+        const mapping = guessMapping(headers);
+        const today   = new Date().toISOString().slice(0, 10);
         if (!mapping.itemName) {
           setCsvHeaders(headers);
-          setCsvRawRows(parsed.data);
-          setColMapping(mapping);
+          setCsvRawRows(data);
+          setColMapping({ itemName: '', category: '', quantity: '', totalAmount: '', taxAmount: '', unitPrice: '', date: '', paymentMode: '' });
           setShowColMapper(true);
-          return;
+        } else {
+          setRows(applyMappingToData(data, mapping, today));
         }
-
-        const today      = new Date().toISOString().slice(0, 10);
-        const mappedRows = parsed.data
-          .filter((row) => row[mapping.itemName])
-          .map((row) => ({
-            id:           Math.random().toString(36).slice(2),
-            date:         (mapping.date && row[mapping.date]) || today,
-            customerName: 'Walk-in',
-            lineItems:    [{ itemName: String(row[mapping.itemName] ?? '').trim() || 'Item', quantity: Number(row[mapping.quantity]) || 1, unitPrice: Number(row[mapping.unitPrice]) || 0, gstRate: 0 }],
-            paymentMode:  normalisePaymentMode((mapping.paymentMode && row[mapping.paymentMode]) || ''),
-            notes:        '',
-          }));
-        setRows(mappedRows);
       } catch (e) {
-        setExtractErr(e.message ?? 'Failed to parse CSV.');
+        setExtractErr(e.message ?? 'Excel parsing failed.');
       } finally {
         setExtracting(false);
       }
       return;
     }
 
-    // ── Unsupported type ──────────────────────────────────────────────────────
-    setExtractErr('Unsupported file type. Please upload a PDF or CSV/TXT file.');
+    // ── Image path (JPG, PNG, WebP) ───────────────────────────────────────────
+    if (!isCsvText) {
+      const base64 = await toBase64(file);
+      const today  = new Date().toISOString().slice(0, 10);
+      const mime   = file.type || 'application/octet-stream';
+      console.log('Data being sent to Gemini:', `[base64 ${mime} ${(base64.length * 0.75 / 1024).toFixed(1)} KB]`);
+      await doExtract([{ text: buildPrompt(today) }, { inlineData: { mimeType: mime, data: base64 } }]);
+      return;
+    }
+
+    // ── CSV path: parse locally, map columns without Gemini ──────────────────
+    const content = await file.text();
+    const parsed  = Papa.parse(content, { header: true, skipEmptyLines: true });
+    if (!parsed.data.length) { setExtractErr('CSV file appears to be empty.'); return; }
+
+    const headers = Object.keys(parsed.data[0]);
+    const mapping = guessMapping(headers);
+    const today   = new Date().toISOString().slice(0, 10);
+
+    setExtracting(true);
+    setExtractErr('');
+    setRows([]);
+
+    if (!mapping.itemName) {
+      setCsvHeaders(headers);
+      setCsvRawRows(parsed.data);
+      setColMapping({ itemName: '', category: '', quantity: '', totalAmount: '', taxAmount: '', unitPrice: '', date: '', paymentMode: '' });
+      setShowColMapper(true);
+    } else {
+      setRows(applyMappingToData(parsed.data, mapping, today));
+    }
+    setExtracting(false);
   }
 
   function applyColumnMapping() {
@@ -247,30 +481,9 @@ function ImportModal({ open, onClose, companyId, onImported }) {
 
   async function handleExtractPaste() {
     if (!paste.trim()) return;
-    setExtracting(true);
-    setExtractErr('');
-    setRows([]);
-    try {
-      const parsed = Papa.parse(paste.trim(), { header: true, skipEmptyLines: true });
-      if (!parsed.data.length) throw new Error('Could not parse pasted content. Please paste CSV data with headers, or use the Upload tab for PDFs.');
-      const headers   = Object.keys(parsed.data[0]);
-      const autoGuess = (kws) => headers.find((h) => kws.some((k) => h.toLowerCase().includes(k))) ?? '';
-      setCsvHeaders(headers);
-      setCsvRawRows(parsed.data);
-      setColMapping({
-        itemName:    autoGuess(['item', 'name', 'product', 'dish', 'menu']),
-        quantity:    autoGuess(['qty', 'quantity', 'count', 'units']),
-        unitPrice:   autoGuess(['price', 'rate', 'unit']),
-        totalAmount: autoGuess(['total', 'net', 'gross', 'amount']),
-        date:        autoGuess(['date', 'time', 'day']),
-        paymentMode: autoGuess(['payment', 'mode', 'method']),
-      });
-      setShowColMapper(true);
-    } catch (e) {
-      setExtractErr(e.message ?? 'Parsing failed.');
-    } finally {
-      setExtracting(false);
-    }
+    const today = new Date().toISOString().slice(0, 10);
+    console.log('Data being sent to Gemini:', paste.substring(0, 500));
+    await doExtract([{ text: buildPrompt(today) + '\n\n' + paste }]);
   }
 
   async function handleSaveAll() {
@@ -468,7 +681,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
                     onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) setFile(f); }}
                   >
                     <input ref={fileRef} type="file" className="hidden"
-                      accept=".csv,.txt,.pdf"
+                      accept=".csv,.txt,.pdf,.jpg,.jpeg,.png,.webp"
                       onChange={(e) => setFile(e.target.files[0] ?? null)} />
                     {file ? (
                       <div>
@@ -483,23 +696,24 @@ function ImportModal({ open, onClose, companyId, onImported }) {
                     ) : (
                       <div>
                         <p className="text-sm text-gray-500">Drop a file here or click to select</p>
-                        <p className="text-xs text-gray-400 mt-1">PDF or CSV</p>
+                        <p className="text-xs text-gray-400 mt-1">CSV, PDF, JPG, PNG, WebP</p>
                       </div>
                     )}
                   </div>
-                  {extractErr && <p className="text-sm text-blue-700">{extractErr}</p>}
+                  {extractErr && <p className="text-sm text-red-600">{extractErr}</p>}
+                  <button type="button" onClick={handleExtractFile}
+                    disabled={!file || extracting}
+                    className="flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40 transition">
+                    {extracting && !pdfProgress && <LoadingSpinner size="sm" />}
+                    {extracting && !pdfProgress ? 'Extracting…' : 'Extract with AI'}
+                  </button>
                   {extracting && pdfProgress && (
                     <div className="flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5 text-sm text-blue-700">
                       <LoadingSpinner size="sm" />
                       <span>{pdfProgress}</span>
                     </div>
                   )}
-                  <button type="button" onClick={handleExtractFile}
-                    disabled={!file || extracting}
-                    className="flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40 transition">
-                    {extracting && <LoadingSpinner size="sm" />}
-                    {extracting ? 'Parsing…' : 'Parse Report'}
-                  </button>
+                  {retryMsg && <p className="text-sm font-medium text-amber-600">{retryMsg}</p>}
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -512,8 +726,9 @@ function ImportModal({ open, onClose, companyId, onImported }) {
                     disabled={!paste.trim() || extracting}
                     className="flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40 transition">
                     {extracting && <LoadingSpinner size="sm" />}
-                    {extracting ? 'Parsing…' : 'Parse CSV'}
+                    {extracting ? 'Extracting…' : 'Extract with AI'}
                   </button>
+                  {retryMsg && <p className="text-sm font-medium text-amber-600">{retryMsg}</p>}
                 </div>
               )}
             </>
