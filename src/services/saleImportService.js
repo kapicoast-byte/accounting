@@ -42,27 +42,14 @@ export async function extractTextFromPDF(file) {
       )
       .filter(l => l.trim());
 
-    const pageText = pageLines.join('\n') + '\n';
-    console.log(`Page ${pageNum} text length:`, pageText.length);
-    console.log(`Page ${pageNum} sample:`, pageText.substring(0, 200));
-    fullText += pageText;
+    fullText += pageLines.join('\n') + '\n';
   }
 
+  console.log('=== PDF EXTRACTED TEXT ===');
+  console.log(fullText);
+  console.log('=== END PDF TEXT ===');
+
   return fullText;
-}
-
-// ─── Gemini column-mapping prompt ─────────────────────────────────────────────
-
-export function buildPdfMappingPrompt(sampleText) {
-  return `This is a sample from a restaurant sales report:
-"${sampleText}"
-
-Identify which words/headers correspond to these fields:
-itemName, category, quantity, totalAmount, taxAmount
-
-Return ONLY a JSON object like:
-{"itemName": "Item", "category": "Category", "quantity": "Qty", "totalAmount": "Gross Sales", "taxAmount": "Tax"}
-No markdown, no explanation.`;
 }
 
 // ─── Local row parser ──────────────────────────────────────────────────────────
