@@ -1,0 +1,26 @@
+:root {
+  --bg: oklch(0.17 0.012 250);
+  --bg-2: oklch(0.20 0.013 250);
+  --card: oklch(0.22 0.013 250);
+  --card-2: oklch(0.245 0.014 250);
+  --border: oklch(0.30 0.012 250 / 0.7);
+  --hover: oklch(0.27 0.014 250);
+  --fg: oklch(0.97 0.005 250);
+  --fg-2: oklch(0.78 0.012 250);
+  --fg-3: oklch(0.62 0.012 250);
+  --pos: oklch(0.74 0.15 155);
+  --pos-soft: oklch(0.74 0.15 155 / 0.14);
+  --neg: oklch(0.68 0.17 25);
+  --neg-soft: oklch(0.68 0.17 25 / 0.14);
+  --warn: oklch(0.78 0.14 75);
+  --warn-soft: oklch(0.78 0.14 75 / 0.14);
+  --info: oklch(0.72 0.13 240);
+  --info-soft: oklch(0.72 0.13 240 / 0.14);
+  --radius: 12px;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'Inter', system-ui, sans-serif;
+}

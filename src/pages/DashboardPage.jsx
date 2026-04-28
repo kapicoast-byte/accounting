@@ -19,56 +19,64 @@ export default function DashboardPage() {
     companies,
   });
 
+  const btLabel = activeCompany?.businessType
+    ? (BUSINESS_TYPES.find((b) => b.value === activeCompany.businessType)?.label ?? activeCompany.businessType)
+    : null;
+
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-start justify-between gap-4">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      {/* Page header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-gray-900">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--fg)', margin: 0 }}>
               {activeCompany?.companyName ?? 'Dashboard'}
             </h1>
-            {activeCompany?.businessType && (() => {
-              const bt = BUSINESS_TYPES.find((b) => b.value === activeCompany.businessType);
-              const colors = {
-                'F&B':           'bg-orange-100 text-orange-700',
-                'Retail':        'bg-green-100 text-green-700',
-                'Manufacturing': 'bg-purple-100 text-purple-700',
-                'Services':      'bg-blue-100 text-blue-700',
-                'Other':         'bg-gray-100 text-gray-600',
-              };
-              return (
-                <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${colors[activeCompany.businessType] ?? colors['Other']}`}>
-                  {bt?.label ?? activeCompany.businessType}
-                </span>
-              );
-            })()}
+            {btLabel && (
+              <span style={{
+                fontSize: 11, fontWeight: 500, padding: '2px 10px', borderRadius: 20,
+                background: 'var(--card-2)', color: 'var(--fg-3)', border: '1px solid var(--border)',
+              }}>
+                {btLabel}
+              </span>
+            )}
           </div>
-          <p className="text-sm text-gray-500">
+          <p style={{ fontSize: 13, color: 'var(--fg-3)', margin: '4px 0 0' }}>
             Live overview for the active company
           </p>
         </div>
+
         <button
           type="button"
           onClick={refresh}
           disabled={loading}
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition"
+          style={{
+            padding: '6px 16px', borderRadius: 8, fontSize: 13, fontWeight: 500,
+            border: '1px solid var(--border)', background: 'transparent',
+            color: 'var(--fg-3)', cursor: loading ? 'not-allowed' : 'pointer',
+            opacity: loading ? 0.5 : 1, transition: 'all 0.15s',
+          }}
+          onMouseEnter={(e) => { if (!loading) { e.currentTarget.style.background = 'var(--hover)'; e.currentTarget.style.color = 'var(--fg)'; } }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--fg-3)'; }}
         >
           {loading ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
 
       {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div style={{ borderRadius: 8, border: '1px solid var(--neg)', background: 'var(--neg-soft)', padding: '10px 14px', fontSize: 13, color: 'var(--neg)' }}>
           {error}
         </div>
       )}
 
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* Stat cards */}
+      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
         <StatCard
           title="Today's sales"
           value={formatCurrency(data?.todaysSales?.total ?? 0)}
           subtitle={`${data?.todaysSales?.count ?? 0} invoices`}
-          accent="green"
+          accent="pos"
+          trend="up"
           loading={loading}
           breakdown={data?.todaysSales?.breakdown}
         />
@@ -76,7 +84,7 @@ export default function DashboardPage() {
           title="Today's purchases"
           value={formatCurrency(data?.todaysPurchases?.total ?? 0)}
           subtitle={`${data?.todaysPurchases?.count ?? 0} bills`}
-          accent="blue"
+          accent="info"
           loading={loading}
           breakdown={data?.todaysPurchases?.breakdown}
         />
@@ -84,7 +92,8 @@ export default function DashboardPage() {
           title="Receivables (owed to us)"
           value={formatCurrency(data?.receivables?.total ?? 0)}
           subtitle={`${data?.receivables?.count ?? 0} open invoices`}
-          accent="green"
+          accent="pos"
+          trend="up"
           loading={loading}
           breakdown={data?.receivables?.breakdown}
         />
@@ -92,7 +101,8 @@ export default function DashboardPage() {
           title="Payables (we owe)"
           value={formatCurrency(data?.payables?.total ?? 0)}
           subtitle={`${data?.payables?.count ?? 0} open bills`}
-          accent="red"
+          accent="neg"
+          trend="down"
           loading={loading}
           breakdown={data?.payables?.breakdown}
         />
@@ -100,7 +110,7 @@ export default function DashboardPage() {
 
       <SalesPurchasesChart data={data?.weeklyChart} loading={loading} />
 
-      <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
         <CashBankCard data={data?.cashBank} loading={loading} />
         <LowStockCard data={data?.lowStock} loading={loading} />
         <TopSellingCard data={data?.topSelling} loading={loading} />
