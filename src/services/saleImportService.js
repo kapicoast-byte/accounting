@@ -6,9 +6,8 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import * as pdfjsLib from 'pdfjs-dist';
-import PDFWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = PDFWorker;
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 // ─── Prompt builder for PDF column mapping ────────────────────────────────────
 
