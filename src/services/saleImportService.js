@@ -10,6 +10,24 @@ import PDFWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = PDFWorker;
 
+// ─── Prompt builder for PDF column mapping ────────────────────────────────────
+
+export function buildPdfMappingPrompt(sampleText) {
+  return `You are analyzing the header row of a sales report. Given the first 500 characters of the document below, identify which text labels correspond to these fields:
+- itemName: the column header for product/item names
+- quantity: the column header for quantity/units sold
+- unitPrice: the column header for unit price/rate
+- totalAmount: the column header for total/gross sales amount
+- date: the column header for date
+- paymentMode: the column header for payment type/mode
+
+Return ONLY a valid JSON object with these keys and the exact matching column header text as values. Use empty string "" if not found.
+Example: {"itemName":"Item Name","quantity":"Qty","unitPrice":"Price","totalAmount":"Total","date":"Date","paymentMode":"Payment"}
+
+Document sample:
+${sampleText}`;
+}
+
 // ─── PDF text extraction ───────────────────────────────────────────────────────
 
 export async function extractTextFromPDF(file) {

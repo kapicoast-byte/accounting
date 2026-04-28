@@ -267,6 +267,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
   const [reportDateFrom, setReportDateFrom] = useState('');
   const [reportDateTo,   setReportDateTo]   = useState('');
   const [pdfProgress,    setPdfProgress]    = useState('');
+  const [selectedRowIds, setSelectedRowIds] = useState(new Set());
 
   useEffect(() => {
     if (open) return;
@@ -278,10 +279,30 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     setPdfDateStep(false); setPdfDetected(''); setImportDate(''); setPendingRows([]);
     setPdfRangeFrom(''); setReportDateFrom(''); setReportDateTo('');
     setPdfProgress('');
+    setSelectedRowIds(new Set());
   }, [open]);
+
+  function setRowsAndSelect(newRows) {
+    setRows(newRows);
+    setSelectedRowIds(new Set(newRows.map((r) => r.id)));
+  }
 
   function updateRow(id, field, val) {
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: val } : r)));
+  }
+
+  function updateLineItem(rowId, field, val) {
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.id !== rowId) return r;
+        return {
+          ...r,
+          lineItems: r.lineItems.map((l, i) =>
+            i === 0 ? { ...l, [field]: field === 'itemName' ? val : (Number(val) || 0) } : l,
+          ),
+        };
+      }),
+    );
   }
 
   async function doExtract(parts) {
@@ -298,7 +319,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
       try { arr = JSON.parse(match[0]); }
       catch { throw new Error('AI could not read this file format. Please check the file and try again.'); }
       if (!Array.isArray(arr)) throw new Error('AI could not read this file format. Please check the file and try again.');
-      setRows(normaliseRows(arr, today));
+      setRowsAndSelect(normaliseRows(arr, today));
     } catch (e) {
       setExtractErr(e.message ?? 'Extraction failed.');
     } finally {
@@ -403,7 +424,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
           setColMapping({ itemName: '', category: '', quantity: '', totalAmount: '', taxAmount: '', unitPrice: '', date: '', paymentMode: '' });
           setShowColMapper(true);
         } else {
-          setRows(applyMappingToData(data, mapping, today));
+          setRowsAndSelect(applyMappingToData(data, mapping, today));
         }
       } catch (e) {
         setExtractErr(e.message ?? 'Excel parsing failed.');
@@ -442,7 +463,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
       setColMapping({ itemName: '', category: '', quantity: '', totalAmount: '', taxAmount: '', unitPrice: '', date: '', paymentMode: '' });
       setShowColMapper(true);
     } else {
-      setRows(applyMappingToData(parsed.data, mapping, today));
+      setRowsAndSelect(applyMappingToData(parsed.data, mapping, today));
     }
     setExtracting(false);
   }
@@ -464,7 +485,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
           notes:        '',
         };
       });
-    setRows(mapped);
+    setRowsAndSelect(mapped);
     setShowColMapper(false);
     setCsvRawRows([]);
     setCsvHeaders([]);
@@ -474,7 +495,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     const date = importDate || new Date().toISOString().slice(0, 10);
     setReportDateFrom(pdfRangeFrom || date);
     setReportDateTo(date);
-    setRows(pendingRows.map((r) => ({ ...r, date })));
+    setRowsAndSelect(pendingRows.map((r) => ({ ...r, date })));
     setPdfDateStep(false);
     setPendingRows([]);
   }
@@ -487,14 +508,15 @@ function ImportModal({ open, onClose, companyId, onImported }) {
   }
 
   async function handleSaveAll() {
-    if (rows.length === 0) return;
+    const toSave = rows.filter((r) => selectedRowIds.has(r.id));
+    if (toSave.length === 0) return;
     setSaving(true);
     setSaveErr('');
     let saved = 0;
     const errs = [];
     const salesItemBatch = [];
 
-    for (const row of rows) {
+    for (const row of toSave) {
       try {
         await createSale(companyId, {
           customer:      { name: row.customerName || 'Walk-in', phone: '', address: '', GSTIN: '' },
@@ -549,6 +571,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     if (saved > 0) {
       setSavedCount(saved);
       setRows([]);
+      setSelectedRowIds(new Set());
       onImported();
     }
     if (errs.length) setSaveErr(`${errs.length} failed: ${errs.slice(0, 2).join('; ')}`);
@@ -556,70 +579,115 @@ function ImportModal({ open, onClose, companyId, onImported }) {
 
   if (!open) return null;
 
+  const allSelected   = rows.length > 0 && rows.every((r) => selectedRowIds.has(r.id));
+  const selectedCount = rows.filter((r) => selectedRowIds.has(r.id)).length;
+  const selectedRows  = rows.filter((r) => selectedRowIds.has(r.id));
+  const totalSales    = selectedRows.reduce((s, r) => s + r.lineItems.reduce((a, l) => a + l.quantity * l.unitPrice, 0), 0);
+  const totalGST      = selectedRows.reduce((s, r) => s + r.lineItems.reduce((a, l) => a + l.quantity * l.unitPrice * (l.gstRate / 100), 0), 0);
+  const progressStep  = pdfProgress.includes('Step 3') || pdfProgress.includes('Done') ? 3
+    : pdfProgress.includes('Step 2') ? 2 : 1;
+
+  const EMERALD = 'oklch(0.55 0.18 155)';
+  const iStyle  = (extra = {}) => ({
+    background: 'var(--db-card-inset)',
+    border: '1px solid var(--db-border)',
+    color: 'var(--db-text)',
+    colorScheme: 'dark',
+    ...extra,
+  });
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="flex w-full max-w-4xl max-h-[90vh] flex-col rounded-xl bg-white shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.72)' }}>
+      <div className="flex w-full max-w-4xl max-h-[90vh] flex-col overflow-hidden rounded-2xl shadow-2xl"
+        style={{ background: 'var(--db-bg)', border: '1px solid var(--db-border)' }}>
 
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-          <h2 className="text-lg font-semibold text-gray-900">Import Sales Report</h2>
+        <div className="flex flex-shrink-0 items-center justify-between px-6 py-4"
+          style={{ borderBottom: '1px solid var(--db-border-subtle)' }}>
+          <div>
+            <h2 className="text-base font-semibold" style={{ color: 'var(--db-text)' }}>
+              Import Sales Report
+            </h2>
+            <p className="mt-0.5 text-xs" style={{ color: 'var(--db-text-3)' }}>
+              PDF · CSV · Excel · Image
+            </p>
+          </div>
           <button type="button" onClick={onClose}
-            className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition">
-            <svg viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+            className="flex h-8 w-8 flex-none items-center justify-center rounded-full transition"
+            style={{ color: 'var(--db-text-3)' }}>
+            <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
               <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
             </svg>
           </button>
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+        <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
 
           {savedCount !== null && (
-            <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
-              ✓ {savedCount} {savedCount === 1 ? 'sale' : 'sales'} added successfully!
+            <div className="flex items-center gap-2.5 rounded-xl px-4 py-3 text-sm font-medium"
+              style={{ background: 'var(--db-green-dim)', border: '1px solid var(--db-green)', color: 'var(--db-green)' }}>
+              <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 flex-none">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+              {savedCount} {savedCount === 1 ? 'sale' : 'sales'} imported successfully!
             </div>
           )}
 
-          {/* PDF date confirmation — shown after PDF extraction, before preview */}
+          {/* PDF date confirmation */}
           {pdfDateStep && (
             <div className="space-y-4">
-              <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
+              <div className="rounded-xl px-4 py-3"
+                style={{ background: 'var(--db-blue-dim)', border: '1px solid var(--db-blue)' }}>
                 {pdfDetected ? (
-                  <p className="text-sm font-semibold text-blue-800">
+                  <p className="text-sm font-semibold" style={{ color: 'var(--db-blue)' }}>
                     Report covers: <span className="font-bold">{pdfDetected}</span>
                   </p>
                 ) : (
-                  <p className="text-sm font-semibold text-blue-800">No date range detected in the report.</p>
+                  <p className="text-sm font-semibold" style={{ color: 'var(--db-blue)' }}>
+                    No date range detected in the report.
+                  </p>
                 )}
-                <p className="mt-1 text-xs text-blue-600">
-                  {pendingRows.length} items extracted — confirm or change the date to assign to all imported sales. You can adjust per row after.
+                <p className="mt-1 text-xs" style={{ color: 'var(--db-text-2)' }}>
+                  {pendingRows.length} items extracted — confirm the import date. You can adjust per row after.
                 </p>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-700">Import date</label>
+                <label className="mb-1.5 block text-xs font-medium" style={{ color: 'var(--db-text-2)' }}>
+                  Import date
+                </label>
                 <input type="date" value={importDate} onChange={(e) => setImportDate(e.target.value)}
-                  className="rounded-md border border-gray-300 px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="rounded-lg px-3 py-2 text-sm outline-none"
+                  style={iStyle()} />
               </div>
               <div className="flex gap-3">
                 <button type="button" onClick={confirmPdfDate} disabled={!importDate}
-                  className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40 transition">
+                  className="rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-40"
+                  style={{ background: EMERALD, color: 'white' }}>
                   Preview {pendingRows.length} Items
                 </button>
                 <button type="button" onClick={() => { setPdfDateStep(false); setPendingRows([]); }}
-                  className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition">
+                  className="rounded-xl px-4 py-2 text-sm transition"
+                  style={{ border: '1px solid var(--db-border)', color: 'var(--db-text-2)', background: 'transparent' }}>
                   Cancel
                 </button>
               </div>
             </div>
           )}
 
-          {/* Column mapper — shown when AI fails for CSV */}
+          {/* Column mapper */}
           {showColMapper && rows.length === 0 && savedCount === null && (
             <div className="space-y-4">
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                AI couldn't auto-parse this file. Please map the columns manually below.
+              <div className="rounded-xl px-4 py-3"
+                style={{ background: 'var(--db-amber-dim)', border: '1px solid var(--db-amber)' }}>
+                <p className="text-sm font-medium" style={{ color: 'var(--db-amber)' }}>
+                  Couldn't auto-detect columns — map them manually below.
+                </p>
+                <p className="mt-0.5 text-xs" style={{ color: 'var(--db-text-2)' }}>
+                  {csvRawRows.length} rows detected
+                </p>
               </div>
-              <p className="text-sm text-gray-600">{csvRawRows.length} rows detected — map your CSV columns to the required fields:</p>
               <div className="grid grid-cols-2 gap-3">
                 {[
                   { key: 'itemName',    label: 'Item Name *' },
@@ -630,11 +698,14 @@ function ImportModal({ open, onClose, companyId, onImported }) {
                   { key: 'paymentMode', label: 'Payment Mode' },
                 ].map(({ key, label }) => (
                   <div key={key}>
-                    <label className="mb-1 block text-xs font-medium text-gray-700">{label}</label>
+                    <label className="mb-1 block text-xs font-medium" style={{ color: 'var(--db-text-2)' }}>
+                      {label}
+                    </label>
                     <select
                       value={colMapping[key] ?? ''}
                       onChange={(e) => setColMapping((p) => ({ ...p, [key]: e.target.value }))}
-                      className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-blue-500"
+                      className="w-full rounded-lg px-2 py-1.5 text-sm outline-none"
+                      style={iStyle()}
                     >
                       <option value="">— skip —</option>
                       {csvHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
@@ -644,29 +715,33 @@ function ImportModal({ open, onClose, companyId, onImported }) {
               </div>
               <div className="flex gap-3">
                 <button type="button" onClick={applyColumnMapping} disabled={!colMapping.itemName}
-                  className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40 transition">
+                  className="rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-40"
+                  style={{ background: EMERALD, color: 'white' }}>
                   Import {csvRawRows.length} Rows
                 </button>
                 <button type="button"
                   onClick={() => { setShowColMapper(false); setCsvHeaders([]); setCsvRawRows([]); }}
-                  className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition">
+                  className="rounded-xl px-4 py-2 text-sm transition"
+                  style={{ border: '1px solid var(--db-border)', color: 'var(--db-text-2)', background: 'transparent' }}>
                   Cancel
                 </button>
               </div>
             </div>
           )}
 
-          {/* Input tabs — only shown before extraction */}
+          {/* Input tabs */}
           {!showColMapper && !pdfDateStep && rows.length === 0 && savedCount === null && (
             <>
-              <div className="flex border-b border-gray-200">
+              {/* Tab switcher */}
+              <div className="flex gap-1 rounded-xl p-1" style={{ background: 'var(--db-card-inset)', width: 'fit-content' }}>
                 {['upload', 'paste'].map((t) => (
                   <button key={t} type="button" onClick={() => setTab(t)}
-                    className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition ${
-                      tab === t
-                        ? 'border-blue-600 text-blue-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700'
-                    }`}>
+                    className="rounded-lg px-4 py-1.5 text-sm font-medium transition"
+                    style={{
+                      background:  tab === t ? 'var(--db-card)' : 'transparent',
+                      color:       tab === t ? 'var(--db-text)' : 'var(--db-text-3)',
+                      border:      tab === t ? '1px solid var(--db-border-subtle)' : '1px solid transparent',
+                    }}>
                     {t === 'upload' ? 'Upload File' : 'Paste Text'}
                   </button>
                 ))}
@@ -674,61 +749,161 @@ function ImportModal({ open, onClose, companyId, onImported }) {
 
               {tab === 'upload' ? (
                 <div className="space-y-4">
+                  {/* Drop zone */}
                   <div
-                    className="cursor-pointer rounded-lg border-2 border-dashed border-gray-300 px-6 py-10 text-center transition hover:border-blue-400"
+                    className="cursor-pointer rounded-2xl px-6 py-12 text-center transition"
+                    style={{
+                      border:     '2px dashed var(--db-border)',
+                      background: file ? 'var(--db-card)' : 'var(--db-card-inset)',
+                    }}
                     onClick={() => fileRef.current?.click()}
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) setFile(f); }}
+                    onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.borderColor = EMERALD; }}
+                    onDragLeave={(e) => { e.currentTarget.style.borderColor = 'var(--db-border)'; }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.style.borderColor = 'var(--db-border)';
+                      const f = e.dataTransfer.files[0];
+                      if (f) setFile(f);
+                    }}
                   >
                     <input ref={fileRef} type="file" className="hidden"
-                      accept=".csv,.txt,.pdf,.jpg,.jpeg,.png,.webp"
+                      accept=".csv,.txt,.pdf,.jpg,.jpeg,.png,.webp,.xlsx,.xls"
                       onChange={(e) => setFile(e.target.files[0] ?? null)} />
+
                     {file ? (
-                      <div>
-                        <p className="text-sm font-medium text-gray-800">{file.name}</p>
-                        <p className="text-xs text-gray-400 mt-0.5">{(file.size / 1024).toFixed(1)} KB</p>
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-xl"
+                          style={{ background: 'var(--db-green-dim)', color: 'var(--db-green)' }}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                          </svg>
+                        </div>
+                        <p className="text-sm font-semibold" style={{ color: 'var(--db-text)' }}>{file.name}</p>
+                        <p className="text-xs" style={{ color: 'var(--db-text-3)' }}>{(file.size / 1024).toFixed(1)} KB</p>
                         <button type="button"
-                          className="mt-1.5 text-xs text-blue-600 underline hover:text-blue-700"
+                          className="mt-0.5 text-xs underline"
+                          style={{ color: 'var(--db-text-3)' }}
                           onClick={(e) => { e.stopPropagation(); setFile(null); }}>
                           Remove
                         </button>
                       </div>
                     ) : (
-                      <div>
-                        <p className="text-sm text-gray-500">Drop a file here or click to select</p>
-                        <p className="text-xs text-gray-400 mt-1">CSV, PDF, JPG, PNG, WebP</p>
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-xl"
+                          style={{ background: 'var(--db-border)', color: 'var(--db-text-2)' }}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
+                            <polyline points="16 16 12 12 8 16"/>
+                            <line x1="12" y1="12" x2="12" y2="21"/>
+                            <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
+                          </svg>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium" style={{ color: 'var(--db-text-2)' }}>
+                            Drop a file here or click to browse
+                          </p>
+                          <p className="mt-0.5 text-xs" style={{ color: 'var(--db-text-3)' }}>
+                            Supported formats
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-center gap-2">
+                          {[
+                            { label: 'PDF', color: 'var(--db-red)',   bg: 'var(--db-red-dim)'   },
+                            { label: 'CSV', color: 'var(--db-green)', bg: 'var(--db-green-dim)' },
+                            { label: 'XLS', color: 'var(--db-blue)',  bg: 'var(--db-blue-dim)'  },
+                            { label: 'IMG', color: 'var(--db-amber)', bg: 'var(--db-amber-dim)' },
+                          ].map(({ label, color, bg }) => (
+                            <span key={label}
+                              className="rounded px-2 py-0.5 text-[10px] font-bold tracking-wide"
+                              style={{ background: bg, color }}>
+                              {label}
+                            </span>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
-                  {extractErr && <p className="text-sm text-red-600">{extractErr}</p>}
-                  <button type="button" onClick={handleExtractFile}
-                    disabled={!file || extracting}
-                    className="flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40 transition">
-                    {extracting && !pdfProgress && <LoadingSpinner size="sm" />}
-                    {extracting && !pdfProgress ? 'Extracting…' : 'Extract with AI'}
-                  </button>
-                  {extracting && pdfProgress && (
-                    <div className="flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5 text-sm text-blue-700">
-                      <LoadingSpinner size="sm" />
-                      <span>{pdfProgress}</span>
+
+                  {extractErr && (
+                    <div className="rounded-xl px-4 py-3 text-sm"
+                      style={{ background: 'var(--db-red-dim)', border: '1px solid var(--db-red)', color: 'var(--db-red)' }}>
+                      {extractErr}
                     </div>
                   )}
-                  {retryMsg && <p className="text-sm font-medium text-amber-600">{retryMsg}</p>}
+
+                  {/* Step progress (PDF extraction) */}
+                  {extracting && (
+                    <div className="rounded-xl p-4 space-y-3"
+                      style={{ background: 'var(--db-card)', border: '1px solid var(--db-border-subtle)' }}>
+                      <div className="flex items-center gap-2">
+                        {[1, 2, 3].map((step) => {
+                          const done    = progressStep > step;
+                          const current = progressStep === step;
+                          return (
+                            <div key={step} className="flex items-center gap-2">
+                              <div className="flex h-7 w-7 flex-none items-center justify-center rounded-full text-xs font-bold transition"
+                                style={{
+                                  background: done ? 'var(--db-green)' : current ? EMERALD : 'var(--db-border)',
+                                  color:      done || current ? 'white' : 'var(--db-text-3)',
+                                }}>
+                                {done ? '✓' : step}
+                              </div>
+                              {step < 3 && (
+                                <div className="h-px w-6 rounded"
+                                  style={{ background: done ? 'var(--db-green)' : 'var(--db-border)' }} />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs" style={{ color: 'var(--db-text-2)' }}>
+                        {pdfProgress || 'Processing…'}
+                      </p>
+                      {retryMsg && (
+                        <p className="text-xs font-medium" style={{ color: 'var(--db-amber)' }}>{retryMsg}</p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Extract button */}
+                  {!extracting && (
+                    <button type="button" onClick={handleExtractFile}
+                      disabled={!file}
+                      className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition disabled:opacity-40"
+                      style={{ background: EMERALD, color: 'white' }}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                      </svg>
+                      Extract with AI
+                    </button>
+                  )}
+                  {retryMsg && !extracting && (
+                    <p className="text-xs font-medium" style={{ color: 'var(--db-amber)' }}>{retryMsg}</p>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-4">
                   <textarea rows={8}
                     placeholder="Paste your sales report text here…"
-                    className="w-full resize-none rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full resize-none rounded-xl px-4 py-3 text-sm outline-none"
+                    style={iStyle()}
                     value={paste} onChange={(e) => setPaste(e.target.value)} />
-                  {extractErr && <p className="text-sm text-red-600">{extractErr}</p>}
+                  {extractErr && (
+                    <div className="rounded-xl px-4 py-3 text-sm"
+                      style={{ background: 'var(--db-red-dim)', border: '1px solid var(--db-red)', color: 'var(--db-red)' }}>
+                      {extractErr}
+                    </div>
+                  )}
                   <button type="button" onClick={handleExtractPaste}
                     disabled={!paste.trim() || extracting}
-                    className="flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40 transition">
+                    className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition disabled:opacity-40"
+                    style={{ background: EMERALD, color: 'white' }}>
                     {extracting && <LoadingSpinner size="sm" />}
                     {extracting ? 'Extracting…' : 'Extract with AI'}
                   </button>
-                  {retryMsg && <p className="text-sm font-medium text-amber-600">{retryMsg}</p>}
+                  {retryMsg && (
+                    <p className="text-xs font-medium" style={{ color: 'var(--db-amber)' }}>{retryMsg}</p>
+                  )}
                 </div>
               )}
             </>
@@ -737,67 +912,145 @@ function ImportModal({ open, onClose, companyId, onImported }) {
           {/* Preview table */}
           {rows.length > 0 && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-medium text-gray-700">
-                  {rows.length} {rows.length === 1 ? 'sale' : 'sales'} found — review and edit before saving
-                </p>
-                <button type="button" onClick={() => setRows([])}
-                  className="text-xs text-gray-400 underline hover:text-gray-600 transition">
+              {/* Controls row */}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 cursor-pointer accent-emerald-500"
+                    checked={allSelected}
+                    onChange={(e) => {
+                      if (e.target.checked) setSelectedRowIds(new Set(rows.map((r) => r.id)));
+                      else setSelectedRowIds(new Set());
+                    }}
+                  />
+                  <span className="text-xs font-medium" style={{ color: 'var(--db-text-2)' }}>
+                    {allSelected ? 'Deselect All' : 'Select All'}
+                  </span>
+                  <span className="text-xs" style={{ color: 'var(--db-text-3)' }}>
+                    ({selectedCount} / {rows.length})
+                  </span>
+                </label>
+                <button type="button"
+                  onClick={() => { setRows([]); setSelectedRowIds(new Set()); }}
+                  className="text-xs underline"
+                  style={{ color: 'var(--db-text-3)' }}>
                   Start over
                 </button>
               </div>
-              <div className="overflow-x-auto rounded-lg border border-gray-200">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
-                    <tr>
-                      <th className="px-3 py-2">Date</th>
-                      <th className="px-3 py-2">Customer</th>
-                      <th className="px-3 py-2">Items</th>
-                      <th className="px-3 py-2 text-right">Total</th>
-                      <th className="px-3 py-2">Payment</th>
-                      <th className="px-3 py-2"></th>
+
+              {/* Summary chips */}
+              <div className="flex flex-wrap gap-2">
+                <span className="rounded-lg px-3 py-1 text-xs font-medium"
+                  style={{ background: 'var(--db-card)', border: '1px solid var(--db-border-subtle)', color: 'var(--db-text-2)' }}>
+                  {rows.length} items total
+                </span>
+                <span className="rounded-lg px-3 py-1 text-xs font-semibold"
+                  style={{ background: 'var(--db-green-dim)', color: 'var(--db-green)', fontFamily: 'var(--font-mono)' }}>
+                  {formatCurrency(totalSales)}
+                </span>
+                {totalGST > 0 && (
+                  <span className="rounded-lg px-3 py-1 text-xs font-semibold"
+                    style={{ background: 'var(--db-amber-dim)', color: 'var(--db-amber)', fontFamily: 'var(--font-mono)' }}>
+                    +{formatCurrency(totalGST)} GST
+                  </span>
+                )}
+                <span className="rounded-lg px-3 py-1 text-xs font-medium"
+                  style={{ background: 'var(--db-blue-dim)', color: 'var(--db-blue)' }}>
+                  {selectedCount} selected
+                </span>
+              </div>
+
+              {/* Table */}
+              <div className="overflow-x-auto rounded-xl"
+                style={{ border: '1px solid var(--db-border-subtle)' }}>
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr style={{ background: 'var(--db-card-inset)', borderBottom: '1px solid var(--db-border-subtle)' }}>
+                      <th className="w-8 px-3 py-2.5">
+                        <input type="checkbox" className="h-3.5 w-3.5 cursor-pointer accent-emerald-500"
+                          checked={allSelected}
+                          onChange={(e) => {
+                            if (e.target.checked) setSelectedRowIds(new Set(rows.map((r) => r.id)));
+                            else setSelectedRowIds(new Set());
+                          }} />
+                      </th>
+                      {['Date', 'Item', 'Qty', 'Unit Price', 'Total', 'Payment', ''].map((h, i) => (
+                        <th key={i} className={`px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider${i >= 2 && i <= 4 ? ' text-right' : ''}`}
+                          style={{ color: 'var(--db-text-3)' }}>
+                          {h}
+                        </th>
+                      ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {rows.map((row) => {
-                      const total = row.lineItems.reduce(
-                        (s, l) => s + l.quantity * l.unitPrice * (1 + l.gstRate / 100), 0,
-                      );
-                      const summary = row.lineItems.length === 0
-                        ? '—'
-                        : row.lineItems.length === 1
-                        ? row.lineItems[0].itemName
-                        : `${row.lineItems[0].itemName} +${row.lineItems.length - 1} more`;
+                  <tbody>
+                    {rows.map((row, idx) => {
+                      const li    = row.lineItems[0] ?? { itemName: '—', quantity: 1, unitPrice: 0, gstRate: 0 };
+                      const total = row.lineItems.reduce((s, l) => s + l.quantity * l.unitPrice * (1 + l.gstRate / 100), 0);
+                      const sel   = selectedRowIds.has(row.id);
                       return (
-                        <tr key={row.id} className="hover:bg-gray-50">
+                        <tr key={row.id}
+                          style={{
+                            background:   sel ? 'oklch(0.74 0.15 155 / 0.06)' : idx % 2 === 0 ? 'var(--db-card)' : 'var(--db-card-inset)',
+                            borderBottom: '1px solid var(--db-border-subtle)',
+                            opacity:      sel ? 1 : 0.5,
+                            transition:   'opacity 0.15s',
+                          }}>
+                          <td className="px-3 py-2">
+                            <input type="checkbox" className="h-3.5 w-3.5 cursor-pointer accent-emerald-500"
+                              checked={sel}
+                              onChange={(e) => {
+                                const next = new Set(selectedRowIds);
+                                if (e.target.checked) next.add(row.id); else next.delete(row.id);
+                                setSelectedRowIds(next);
+                              }} />
+                          </td>
                           <td className="px-3 py-2">
                             <input type="date" value={row.date}
                               onChange={(e) => updateRow(row.id, 'date', e.target.value)}
-                              className="w-32 rounded border border-gray-300 px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-blue-500" />
+                              className="rounded-md px-2 py-1 text-xs outline-none"
+                              style={iStyle({ width: '7.5rem' })} />
                           </td>
-                          <td className="px-3 py-2">
-                            <input type="text" value={row.customerName}
-                              onChange={(e) => updateRow(row.id, 'customerName', e.target.value)}
-                              className="w-28 rounded border border-gray-300 px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-blue-500" />
+                          <td className="px-3 py-2" style={{ maxWidth: '10rem' }}>
+                            <input type="text" value={li.itemName}
+                              onChange={(e) => updateLineItem(row.id, 'itemName', e.target.value)}
+                              className="w-full rounded-md px-2 py-1 text-xs outline-none"
+                              style={iStyle()} />
                           </td>
-                          <td className="max-w-[180px] px-3 py-2">
-                            <span className="block truncate text-xs text-gray-600" title={summary}>{summary}</span>
+                          <td className="px-3 py-2 text-right">
+                            <input type="number" value={li.quantity} min="0"
+                              onChange={(e) => updateLineItem(row.id, 'quantity', e.target.value)}
+                              className="rounded-md px-2 py-1 text-xs text-right outline-none"
+                              style={iStyle({ width: '3.5rem' })} />
                           </td>
-                          <td className="px-3 py-2 text-right text-xs font-semibold text-gray-800">
+                          <td className="px-3 py-2 text-right">
+                            <input type="number" value={li.unitPrice} min="0"
+                              onChange={(e) => updateLineItem(row.id, 'unitPrice', e.target.value)}
+                              className="rounded-md px-2 py-1 text-xs text-right outline-none"
+                              style={iStyle({ width: '5rem', fontFamily: 'var(--font-mono)' })} />
+                          </td>
+                          <td className="px-3 py-2 text-right font-semibold"
+                            style={{ color: 'var(--db-green)', fontFamily: 'var(--font-mono)' }}>
                             {formatCurrency(total)}
                           </td>
                           <td className="px-3 py-2">
                             <select value={row.paymentMode}
                               onChange={(e) => updateRow(row.id, 'paymentMode', e.target.value)}
-                              className="rounded border border-gray-300 px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-blue-500">
+                              className="rounded-md px-2 py-1 text-xs outline-none"
+                              style={iStyle()}>
                               {PAYMENT_MODES.map((m) => <option key={m}>{m}</option>)}
                             </select>
                           </td>
-                          <td className="px-3 py-2 text-center">
+                          <td className="px-3 py-2">
                             <button type="button"
-                              onClick={() => setRows((p) => p.filter((r) => r.id !== row.id))}
-                              className="text-lg leading-none text-red-400 transition hover:text-red-600"
-                              title="Remove">×</button>
+                              onClick={() => {
+                                setRows((p) => p.filter((r) => r.id !== row.id));
+                                setSelectedRowIds((p) => { const n = new Set(p); n.delete(row.id); return n; });
+                              }}
+                              className="flex h-5 w-5 items-center justify-center rounded text-base leading-none transition"
+                              style={{ color: 'var(--db-text-3)' }}
+                              title="Remove">×
+                            </button>
                           </td>
                         </tr>
                       );
@@ -805,24 +1058,37 @@ function ImportModal({ open, onClose, companyId, onImported }) {
                   </tbody>
                 </table>
               </div>
-              {saveErr && <p className="text-sm text-red-600">{saveErr}</p>}
+
+              {saveErr && (
+                <div className="rounded-xl px-4 py-3 text-sm"
+                  style={{ background: 'var(--db-red-dim)', border: '1px solid var(--db-red)', color: 'var(--db-red)' }}>
+                  {saveErr}
+                </div>
+              )}
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-4">
-          <button type="button" onClick={onClose}
-            className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition">
-            {savedCount !== null ? 'Close' : 'Cancel'}
-          </button>
-          {rows.length > 0 && (
-            <button type="button" onClick={handleSaveAll} disabled={saving}
-              className="flex items-center gap-2 rounded-md bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40 transition">
-              {saving && <LoadingSpinner size="sm" />}
-              {saving ? 'Saving…' : `Save All (${rows.length})`}
+        <div className="flex flex-shrink-0 items-center justify-between gap-3 px-6 py-4"
+          style={{ borderTop: '1px solid var(--db-border-subtle)' }}>
+          <div />
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={onClose}
+              className="rounded-xl px-4 py-2 text-sm transition"
+              style={{ border: '1px solid var(--db-border)', color: 'var(--db-text-2)', background: 'transparent' }}>
+              {savedCount !== null ? 'Close' : 'Cancel'}
             </button>
-          )}
+            {rows.length > 0 && (
+              <button type="button" onClick={handleSaveAll}
+                disabled={saving || selectedCount === 0}
+                className="flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold transition disabled:opacity-40"
+                style={{ background: EMERALD, color: 'white' }}>
+                {saving && <LoadingSpinner size="sm" />}
+                {saving ? 'Saving…' : `Import Selected (${selectedCount})`}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
