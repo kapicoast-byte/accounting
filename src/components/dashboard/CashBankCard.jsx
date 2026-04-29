@@ -6,74 +6,65 @@ export default function CashBankCard({ data, loading }) {
 
   return (
     <div className="db-card flex h-full flex-col p-5">
-      <h3 className="text-sm font-semibold" style={{ color: 'var(--db-text)' }}>
+      <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>
         Cash &amp; Bank
       </h3>
 
       {loading ? (
-        <div className="mt-4 flex flex-1 items-center justify-center" style={{ minHeight: 120 }}>
+        <div style={{ marginTop: 16, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 120 }}>
           <LoadingSpinner />
         </div>
       ) : (
         <>
           {/* Total balance */}
-          <p
-            className="mt-3 text-3xl font-bold leading-none"
-            style={{ color: 'var(--db-text)', fontFamily: 'var(--font-mono)' }}
-          >
+          <p style={{ marginTop: 12, fontSize: 30, fontWeight: 700, lineHeight: 1, fontFamily: 'var(--font-mono)', color: 'var(--fg)' }}>
             {formatCurrency(total)}
           </p>
-          <p className="mt-1 text-xs" style={{ color: 'var(--db-text-3)' }}>
+          <p style={{ marginTop: 4, fontSize: 11, color: 'var(--fg-3)' }}>
             total balance
           </p>
 
-          {/* Cash / Bank summary chips */}
-          <div className="mt-4 grid grid-cols-2 gap-2">
+          {/* Cash / Bank chips */}
+          <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             {[
-              { label: 'Cash', value: data?.cashTotal ?? 0, color: 'var(--db-green)', bg: 'var(--db-green-dim)' },
-              { label: 'Bank', value: data?.bankTotal ?? 0, color: 'var(--db-blue)',  bg: 'var(--db-blue-dim)'  },
+              { label: 'Cash', value: data?.cashTotal ?? 0, color: 'var(--pos)', bg: 'var(--pos-soft)' },
+              { label: 'Bank', value: data?.bankTotal ?? 0, color: 'var(--info)', bg: 'var(--info-soft)' },
             ].map(({ label, value, color, bg }) => (
-              <div key={label} className="rounded-lg p-3" style={{ background: bg }}>
-                <p className="text-xs" style={{ color: 'var(--db-text-3)' }}>{label}</p>
-                <p
-                  className="mt-0.5 text-sm font-bold"
-                  style={{ color, fontFamily: 'var(--font-mono)' }}
-                >
+              <div key={label} style={{ padding: '10px 12px', borderRadius: 8, background: bg }}>
+                <p style={{ fontSize: 11, color: 'var(--fg-3)' }}>{label}</p>
+                <p style={{ marginTop: 2, fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-mono)', color }}>
                   {formatCurrency(value)}
                 </p>
               </div>
             ))}
           </div>
 
-          {/* Individual account list */}
+          {/* Account list */}
           {data?.accounts?.length > 0 && (
-            <ul
-              className="mt-3 flex-1 divide-y overflow-y-auto"
-              style={{ borderColor: 'var(--db-border-subtle)' }}
-            >
+            <ul style={{
+              marginTop: 12, flex: 1, overflowY: 'auto',
+              borderTop: '1px solid var(--border)',
+              paddingTop: 8, paddingLeft: 0, listStyle: 'none',
+              display: 'flex', flexDirection: 'column', gap: 0,
+            }}>
               {data.accounts.map((acc) => (
                 <li
                   key={acc.id}
-                  className="flex items-center justify-between gap-2 py-2 text-xs"
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)' }}
                 >
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span
-                      className="h-1.5 w-1.5 flex-none rounded-full"
-                      style={{
-                        background: acc.type === 'cash' ? 'var(--db-green)' : 'var(--db-blue)',
-                      }}
-                    />
-                    <span className="truncate" style={{ color: 'var(--db-text-2)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                    <span style={{
+                      width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                      background: acc.type === 'cash' ? 'var(--pos)' : 'var(--info)',
+                    }} />
+                    <span style={{ fontSize: 12, color: 'var(--fg-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {acc.name}
                       {acc.companyName && (
-                        <span style={{ color: 'var(--db-text-3)' }}> · {acc.companyName}</span>
+                        <span style={{ color: 'var(--fg-3)' }}> · {acc.companyName}</span>
                       )}
                     </span>
                   </div>
-                  <span
-                    className="flex-none font-semibold"
-                    style={{ color: 'var(--db-text)', fontFamily: 'var(--font-mono)' }}
-                  >
+                  <span style={{ fontSize: 12, fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--fg)', flexShrink: 0 }}>
                     {formatCurrency(acc.balance)}
                   </span>
                 </li>

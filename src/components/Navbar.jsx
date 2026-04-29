@@ -8,15 +8,6 @@ import { BUSINESS_TYPES } from '../services/companyService';
 import { getThisMonthDeletionCount } from '../services/deletionLogService';
 import CompanySwitcher from './CompanySwitcher';
 
-const BT_COLORS = {
-  'F&B':           'bg-orange-100 text-orange-700',
-  'Retail':        'bg-green-100 text-green-700',
-  'Manufacturing': 'bg-purple-100 text-purple-700',
-  'Services':      'bg-blue-100 text-blue-700',
-  'Mixed':         'bg-teal-100 text-teal-700',
-  'Other':         'bg-gray-100 text-gray-600',
-};
-
 const NAV_LINKS = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/sales',     label: 'Sales'     },
@@ -38,66 +29,101 @@ const ACCOUNTS_LINKS = [
 const ACCOUNTS_PREFIXES = ACCOUNTS_LINKS.map((l) => l.to);
 
 const FNB_LINKS = [
-  { to: '/fnb/menu-master', label: 'Menu Master'      },
-  { to: '/wastage',         label: 'Wastage Tracking'  },
-  { to: '/production',      label: 'Production Log'    },
+  { to: '/fnb/menu-master', label: 'Menu Master'     },
+  { to: '/wastage',         label: 'Wastage Tracking' },
+  { to: '/production',      label: 'Production Log'   },
 ];
 
 const FNB_PREFIXES = ['/fnb', '/wastage', '/production'];
 
-function FnbDropdown() {
+const DROPDOWN_PANEL = {
+  position: 'absolute',
+  top: 'calc(100% + 8px)',
+  left: 0,
+  zIndex: 50,
+  minWidth: 200,
+  background: 'var(--card-2)',
+  border: '1px solid var(--border)',
+  borderRadius: 'var(--radius)',
+  padding: '6px',
+  boxShadow: '0 16px 40px oklch(0 0 0 / 0.5)',
+};
+
+function DropdownItem({ to, children, onClick }) {
+  return (
+    <NavLink
+      to={to}
+      onClick={onClick}
+      style={({ isActive }) => ({
+        display: 'block',
+        padding: '7px 12px',
+        borderRadius: 8,
+        fontSize: 13,
+        fontWeight: isActive ? 600 : 400,
+        color: isActive ? 'var(--pos)' : 'var(--fg-2)',
+        background: isActive ? 'var(--pos-soft)' : 'transparent',
+        textDecoration: 'none',
+        transition: 'background 0.1s, color 0.1s',
+      })}
+    >
+      {children}
+    </NavLink>
+  );
+}
+
+function NavDropdown({ label, links, prefixes }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const location = useLocation();
-
-  const isActive = FNB_PREFIXES.some((p) => location.pathname.startsWith(p));
+  const isActive = prefixes.some((p) => location.pathname.startsWith(p));
 
   useEffect(() => {
-    function handleClick(e) {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
+    function close(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
   }, []);
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} style={{ position: 'relative' }}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-sm transition ${
-          isActive
-            ? 'bg-blue-50 text-blue-700 font-medium'
-            : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-        }`}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          padding: '6px 10px',
+          borderRadius: 8,
+          fontSize: 13,
+          fontWeight: isActive ? 600 : 400,
+          color: isActive ? 'var(--fg)' : 'var(--fg-3)',
+          background: 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+          transition: 'color 0.1s',
+        }}
       >
-        F&amp;B Ops
-        <svg className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
-          viewBox="0 0 20 20" fill="currentColor">
-          <path fillRule="evenodd"
-            d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
-            clipRule="evenodd" />
+        {label}
+        <svg
+          viewBox="0 0 20 20" fill="currentColor"
+          style={{ width: 14, height: 14, transform: open ? 'rotate(180deg)' : '', transition: 'transform 0.2s' }}
+        >
+          <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
         </svg>
+        {isActive && (
+          <span style={{
+            position: 'absolute', bottom: 0, left: 10, right: 10,
+            height: 2, borderRadius: 999, background: 'var(--pos)',
+          }} />
+        )}
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-1 w-48 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-          <p className="px-4 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-            F&amp;B Operations
-          </p>
-          {FNB_LINKS.map((link) => (
-            <NavLink
-              key={link.to}
-              to={link.to}
-              onClick={() => setOpen(false)}
-              className={({ isActive: a }) =>
-                `block px-4 py-2 text-sm transition ${
-                  a ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'
-                }`
-              }
-            >
+        <div style={DROPDOWN_PANEL}>
+          {links.map((link) => (
+            <DropdownItem key={link.to} to={link.to} onClick={() => setOpen(false)}>
               {link.label}
-            </NavLink>
+            </DropdownItem>
           ))}
         </div>
       )}
@@ -110,7 +136,6 @@ function AdminDropdown({ companyId }) {
   const [monthCount, setMonthCount] = useState(null);
   const ref = useRef(null);
   const location = useLocation();
-
   const isActive = location.pathname.startsWith('/admin');
 
   useEffect(() => {
@@ -119,116 +144,74 @@ function AdminDropdown({ companyId }) {
   }, [companyId]);
 
   useEffect(() => {
-    function handleClick(e) {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
+    function close(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
   }, []);
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} style={{ position: 'relative' }}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-sm transition ${
-          isActive
-            ? 'bg-red-50 text-red-700 font-medium'
-            : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-        }`}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 4,
+          padding: '6px 10px', borderRadius: 8, fontSize: 13,
+          fontWeight: isActive ? 600 : 400,
+          color: isActive ? 'var(--neg)' : 'var(--fg-3)',
+          background: 'transparent', border: 'none', cursor: 'pointer',
+          position: 'relative',
+        }}
       >
         Admin
         {monthCount > 0 && (
-          <span className="ml-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+          <span style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            height: 16, minWidth: 16, padding: '0 4px',
+            borderRadius: 999, background: 'var(--neg)', color: 'white',
+            fontSize: 10, fontWeight: 700,
+          }}>
             {monthCount}
           </span>
         )}
-        <svg className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
-          viewBox="0 0 20 20" fill="currentColor">
-          <path fillRule="evenodd"
-            d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
-            clipRule="evenodd" />
+        <svg viewBox="0 0 20 20" fill="currentColor"
+          style={{ width: 14, height: 14, transform: open ? 'rotate(180deg)' : '', transition: 'transform 0.2s' }}>
+          <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
         </svg>
+        {isActive && (
+          <span style={{
+            position: 'absolute', bottom: 0, left: 10, right: 10,
+            height: 2, borderRadius: 999, background: 'var(--neg)',
+          }} />
+        )}
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-52 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-          <p className="px-4 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-            Admin Tools
-          </p>
+        <div style={{ ...DROPDOWN_PANEL, left: 'auto', right: 0 }}>
           <NavLink
             to="/admin/deletion-logs"
             onClick={() => setOpen(false)}
-            className={({ isActive: a }) =>
-              `flex items-center justify-between px-4 py-2 text-sm transition ${
-                a ? 'bg-red-50 text-red-700 font-medium' : 'text-gray-700 hover:bg-gray-50'
-              }`
-            }
+            style={({ isActive: a }) => ({
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '7px 12px', borderRadius: 8, fontSize: 13,
+              fontWeight: a ? 600 : 400,
+              color: a ? 'var(--neg)' : 'var(--fg-2)',
+              background: a ? 'var(--neg-soft)' : 'transparent',
+              textDecoration: 'none',
+            })}
           >
             <span>Deletion Audit Trail</span>
             {monthCount > 0 && (
-              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-red-100 px-1 text-[10px] font-bold text-red-600">
+              <span style={{
+                height: 16, minWidth: 16, padding: '0 4px', display: 'flex',
+                alignItems: 'center', justifyContent: 'center',
+                borderRadius: 999, background: 'var(--neg-soft)',
+                color: 'var(--neg)', fontSize: 10, fontWeight: 700,
+              }}>
                 {monthCount}
               </span>
             )}
           </NavLink>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function AccountsDropdown() {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-  const location = useLocation();
-
-  const isActive = ACCOUNTS_PREFIXES.some((p) => location.pathname.startsWith(p));
-
-  useEffect(() => {
-    function handleClick(e) {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, []);
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-sm transition ${
-          isActive
-            ? 'bg-blue-50 text-blue-700 font-medium'
-            : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-        }`}
-      >
-        Accounts
-        <svg className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
-          viewBox="0 0 20 20" fill="currentColor">
-          <path fillRule="evenodd"
-            d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
-            clipRule="evenodd" />
-        </svg>
-      </button>
-
-      {open && (
-        <div className="absolute left-0 top-full z-50 mt-1 w-48 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-          {ACCOUNTS_LINKS.map((link) => (
-            <NavLink
-              key={link.to}
-              to={link.to}
-              onClick={() => setOpen(false)}
-              className={({ isActive: a }) =>
-                `block px-4 py-2 text-sm transition ${
-                  a ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'
-                }`
-              }
-            >
-              {link.label}
-            </NavLink>
-          ))}
         </div>
       )}
     </div>
@@ -247,93 +230,128 @@ export default function Navbar() {
   }
 
   return (
-    <header className="border-b border-gray-200 bg-white print:hidden">
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-6 py-3">
-        <div className="flex items-center gap-4">
-          <Link to="/dashboard" className="text-lg font-bold text-gray-900">
+    <header
+      className="print:hidden"
+      style={{
+        height: 60,
+        background: 'var(--bg)',
+        borderBottom: '1px solid var(--border)',
+        display: 'flex',
+        alignItems: 'center',
+        padding: '0 28px',
+        position: 'sticky',
+        top: 0,
+        zIndex: 40,
+      }}
+    >
+      <div style={{ display: 'flex', width: '100%', maxWidth: 1152, margin: '0 auto', alignItems: 'center', justifyContent: 'space-between', gap: 24 }}>
+
+        {/* ── Left: logo + nav ─────────────────────────────────────────── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+          <Link
+            to="/dashboard"
+            style={{ fontSize: 16, fontWeight: 700, color: 'var(--fg)', textDecoration: 'none', letterSpacing: '-0.025em', flexShrink: 0 }}
+          >
             SmartBooks
           </Link>
-          <nav className="flex flex-wrap items-center gap-1 text-sm">
+
+          <nav style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             {NAV_LINKS.map((link) => (
               <NavLink
                 key={link.to}
                 to={link.to}
-                className={({ isActive }) =>
-                  `rounded-md px-3 py-1.5 transition ${
-                    isActive
-                      ? 'bg-blue-50 text-blue-700 font-medium'
-                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                  }`
-                }
+                style={({ isActive }) => ({
+                  position: 'relative',
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: isActive ? 600 : 400,
+                  color: isActive ? 'var(--fg)' : 'var(--fg-3)',
+                  textDecoration: 'none',
+                  transition: 'color 0.1s',
+                })}
               >
-                {link.label}
+                {({ isActive }) => (
+                  <>
+                    {link.label}
+                    {isActive && (
+                      <span style={{
+                        position: 'absolute', bottom: 0, left: 10, right: 10,
+                        height: 2, borderRadius: 999, background: 'var(--pos)',
+                      }} />
+                    )}
+                  </>
+                )}
               </NavLink>
             ))}
-            <AccountsDropdown />
-            {businessType === 'F&B' && <FnbDropdown />}
+            <NavDropdown label="Accounts" links={ACCOUNTS_LINKS} prefixes={ACCOUNTS_PREFIXES} />
+            {businessType === 'F&B' && (
+              <NavDropdown label="F&B Ops" links={FNB_LINKS} prefixes={FNB_PREFIXES} />
+            )}
             {isAdmin && <AdminDropdown companyId={activeCompanyId} />}
           </nav>
         </div>
 
-        <div className="flex items-center gap-4">
+        {/* ── Right: company switcher + controls + user ─────────────────── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
           <CompanySwitcher />
 
-          {/* Consolidated / Single view toggle — only shown for parent companies */}
           {isParentCompany && (
             <button
               type="button"
               onClick={toggleConsolidated}
               title={isConsolidated ? 'Switch to Single View' : 'Switch to Consolidated View'}
-              className={`hidden sm:flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition ${
-                isConsolidated
-                  ? 'border-indigo-400 bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
-                  : 'border-gray-300 text-gray-500 hover:bg-gray-50 hover:text-gray-700'
-              }`}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '5px 12px', borderRadius: 999, fontSize: 12, fontWeight: 500,
+                background: isConsolidated ? 'var(--info-soft)' : 'var(--card-2)',
+                color: isConsolidated ? 'var(--info)' : 'var(--fg-3)',
+                border: '1px solid var(--border)',
+                cursor: 'pointer', transition: 'all 0.15s',
+              }}
             >
-              <svg viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+              <svg viewBox="0 0 20 20" fill="currentColor" style={{ width: 14, height: 14 }}>
                 <path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM14 11a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0v-1h-1a1 1 0 110-2h1v-1a1 1 0 011-1z" />
               </svg>
-              {isConsolidated ? 'Consolidated' : 'Single View'}
+              {isConsolidated ? 'Consolidated' : 'Single'}
             </button>
           )}
 
-          {/* Business type badge */}
-          {businessType && (
-            <span className={`hidden sm:inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${BT_COLORS[businessType] ?? BT_COLORS['Other']}`}>
-              {BUSINESS_TYPES.find((b) => b.value === businessType)?.label ?? businessType}
-            </span>
-          )}
-
-          {/* Team members link — visible to admins and managers */}
           {(role === 'admin' || role === 'manager') && (
             <NavLink
               to="/members"
               title="Team Members"
-              className={({ isActive }) =>
-                `flex items-center gap-1 rounded-md px-2.5 py-1.5 text-sm transition ${
-                  isActive
-                    ? 'bg-blue-50 text-blue-700 font-medium'
-                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                }`
-              }
+              style={({ isActive }) => ({
+                display: 'flex', alignItems: 'center', gap: 5,
+                fontSize: 13, textDecoration: 'none',
+                color: isActive ? 'var(--pos)' : 'var(--fg-3)',
+                transition: 'color 0.1s',
+              })}
             >
-              <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+              <svg viewBox="0 0 20 20" fill="currentColor" style={{ width: 15, height: 15 }}>
                 <path d="M10 9a3 3 0 100-6 3 3 0 000 6zM6 8a2 2 0 11-4 0 2 2 0 014 0zM1.49 15.326a.78.78 0 01-.358-.442 3 3 0 014.308-3.516 6.484 6.484 0 00-1.905 3.959c-.023.222-.014.442.025.654a4.97 4.97 0 01-2.07-.655zM16.44 15.98a4.97 4.97 0 002.07-.654.78.78 0 00.357-.442 3 3 0 00-4.308-3.517 6.484 6.484 0 011.907 3.96 2.32 2.32 0 01-.026.654zM18 8a2 2 0 11-4 0 2 2 0 014 0zM5.304 16.19a.844.844 0 01-.277-.71 5 5 0 019.947 0 .843.843 0 01-.277.71A6.975 6.975 0 0110 18a6.974 6.974 0 01-4.696-1.81z" />
               </svg>
               <span className="hidden lg:inline">Members</span>
             </NavLink>
           )}
 
-          <div className="hidden flex-col items-end sm:flex">
-            <span className="text-sm text-gray-700">{user?.displayName}</span>
+          <div className="hidden sm:flex" style={{ flexDirection: 'column', alignItems: 'flex-end' }}>
+            <span style={{ fontSize: 13, color: 'var(--fg-2)', lineHeight: 1.2 }}>{user?.displayName}</span>
             {role && (
-              <span className="text-xs text-gray-400 capitalize">{ROLE_LABELS[role] ?? role}</span>
+              <span style={{ fontSize: 11, color: 'var(--fg-3)', textTransform: 'capitalize' }}>
+                {ROLE_LABELS[role] ?? role}
+              </span>
             )}
           </div>
+
           <button
             type="button"
             onClick={handleLogout}
-            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition"
+            style={{
+              padding: '5px 14px', borderRadius: 999, fontSize: 12, fontWeight: 500,
+              background: 'var(--card-2)', border: '1px solid var(--border)',
+              color: 'var(--fg-2)', cursor: 'pointer', transition: 'all 0.15s',
+            }}
           >
             Sign out
           </button>

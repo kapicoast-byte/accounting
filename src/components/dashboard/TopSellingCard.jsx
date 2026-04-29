@@ -2,18 +2,11 @@ import { formatCurrency, formatNumber } from '../../utils/format';
 import LoadingSpinner from '../LoadingSpinner';
 
 const RANK_COLORS = [
-  'var(--db-green)',
-  'var(--db-blue)',
-  'var(--db-amber)',
-  'var(--db-text-2)',
-  'var(--db-text-3)',
-];
-const RANK_BG = [
-  'var(--db-green-dim)',
-  'var(--db-blue-dim)',
-  'var(--db-amber-dim)',
-  'var(--db-border)',
-  'transparent',
+  { fg: 'var(--pos)',  bg: 'var(--pos-soft)'  },
+  { fg: 'var(--info)', bg: 'var(--info-soft)' },
+  { fg: 'var(--warn)', bg: 'var(--warn-soft)' },
+  { fg: 'var(--fg-2)', bg: 'var(--bg-2)'      },
+  { fg: 'var(--fg-3)', bg: 'transparent'      },
 ];
 
 export default function TopSellingCard({ data, loading }) {
@@ -21,70 +14,60 @@ export default function TopSellingCard({ data, loading }) {
 
   return (
     <div className="db-card h-full p-5">
-      <div className="flex items-baseline gap-2">
-        <h3 className="text-sm font-semibold" style={{ color: 'var(--db-text)' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>
           Top Selling Items
         </h3>
-        <span className="text-xs" style={{ color: 'var(--db-text-3)' }}>this month</span>
+        <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>this month</span>
       </div>
 
       {loading ? (
-        <div className="mt-4 flex h-24 items-center justify-center">
+        <div style={{ marginTop: 16, display: 'flex', height: 96, alignItems: 'center', justifyContent: 'center' }}>
           <LoadingSpinner />
         </div>
       ) : !data?.length ? (
-        <p className="mt-4 text-sm" style={{ color: 'var(--db-text-3)' }}>
+        <p style={{ marginTop: 16, fontSize: 13, color: 'var(--fg-3)' }}>
           No sales recorded this month.
         </p>
       ) : (
-        <ol className="mt-4 space-y-4">
+        <ol style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 14, padding: 0, listStyle: 'none' }}>
           {data.map((item, idx) => {
-            const pct  = maxQty > 0 ? (item.qty / maxQty) * 100 : 0;
-            const col  = RANK_COLORS[idx] ?? RANK_COLORS[4];
-            const bg   = RANK_BG[idx]    ?? 'transparent';
+            const pct   = maxQty > 0 ? (item.qty / maxQty) * 100 : 0;
+            const rank  = RANK_COLORS[idx] ?? RANK_COLORS[4];
 
             return (
               <li key={item.itemId ?? item.itemName}>
-                {/* Name row */}
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span
-                      className="flex h-5 w-5 flex-none items-center justify-center rounded text-[10px] font-bold"
-                      style={{ background: bg, color: col }}
-                    >
+                {/* Name + qty row */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                    <span style={{
+                      width: 20, height: 20, borderRadius: 5, flexShrink: 0,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: rank.bg, color: rank.fg,
+                      fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)',
+                    }}>
                       {idx + 1}
                     </span>
-                    <span
-                      className="truncate text-sm font-medium"
-                      style={{ color: 'var(--db-text)' }}
-                    >
+                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {item.itemName}
                     </span>
                   </div>
-                  <span
-                    className="flex-none text-xs font-semibold"
-                    style={{ color: col, fontFamily: 'var(--font-mono)' }}
-                  >
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--pos)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>
                     {formatNumber(item.qty)} sold
                   </span>
                 </div>
 
                 {/* Progress bar */}
-                <div
-                  className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full"
-                  style={{ background: 'var(--db-border)' }}
-                >
-                  <div
-                    className="h-full rounded-full transition-all duration-700"
-                    style={{ width: `${pct}%`, background: col }}
-                  />
+                <div style={{ marginTop: 6, height: 5, width: '100%', overflow: 'hidden', borderRadius: 999, background: 'var(--bg-2)' }}>
+                  <div style={{
+                    height: '100%', borderRadius: 999,
+                    width: `${pct}%`, background: 'var(--pos)',
+                    transition: 'width 0.7s ease',
+                  }} />
                 </div>
 
-                {/* Amount */}
-                <p
-                  className="mt-0.5 text-right text-xs"
-                  style={{ color: 'var(--db-text-3)', fontFamily: 'var(--font-mono)' }}
-                >
+                {/* Revenue */}
+                <p style={{ marginTop: 3, textAlign: 'right', fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
                   {formatCurrency(item.amount)}
                 </p>
               </li>

@@ -1,63 +1,80 @@
 /* ─── SmartBooks design tokens ──────────────────────────────────────────────
-   Import this file once (via index.css) to make all variables available
-   across every page. Scope dashboard-specific rules under .db-dark.
+   Import once via index.css to expose all variables app-wide.
 ────────────────────────────────────────────────────────────────────────── */
 
 :root {
-  /* ── Dashboard dark palette ───────────────────────────────────────────── */
-  --db-bg:             oklch(0.17 0.012 250);
-  --db-card:           oklch(0.22 0.013 250);
-  --db-card-hover:     oklch(0.255 0.014 250);
-  --db-card-inset:     oklch(0.19 0.012 250);
-  --db-border:         oklch(0.30 0.013 250);
-  --db-border-subtle:  oklch(0.265 0.012 250);
+  /* ── Primary short-name tokens ────────────────────────────────────────── */
+  --bg:        oklch(0.17 0.012 250);
+  --bg-2:      oklch(0.20 0.013 250);
+  --card:      oklch(0.22 0.013 250);
+  --card-2:    oklch(0.245 0.014 250);
+  --border:    oklch(0.30 0.012 250 / 0.7);
+  --hover:     oklch(0.27 0.014 250);
+  --fg:        oklch(0.97 0.005 250);
+  --fg-2:      oklch(0.78 0.012 250);
+  --fg-3:      oklch(0.52 0.010 250);
+  --pos:       oklch(0.74 0.15 155);
+  --pos-soft:  oklch(0.74 0.15 155 / 0.14);
+  --neg:       oklch(0.68 0.17 25);
+  --neg-soft:  oklch(0.68 0.17 25 / 0.14);
+  --warn:      oklch(0.78 0.14 75);
+  --warn-soft: oklch(0.78 0.14 75 / 0.14);
+  --info:      oklch(0.72 0.13 240);
+  --info-soft: oklch(0.72 0.13 240 / 0.14);
+  --radius:    12px;
 
-  /* ── Text hierarchy ───────────────────────────────────────────────────── */
-  --db-text:           oklch(0.93 0.005 250);
-  --db-text-2:         oklch(0.65 0.010 250);
-  --db-text-3:         oklch(0.45 0.008 250);
-
-  /* ── Semantic accents ─────────────────────────────────────────────────── */
-  --db-green:          oklch(0.74 0.15 155);
-  --db-green-dim:      oklch(0.74 0.15 155 / 0.13);
-  --db-red:            oklch(0.68 0.17 25);
-  --db-red-dim:        oklch(0.68 0.17 25 / 0.13);
-  --db-amber:          oklch(0.78 0.14 75);
-  --db-amber-dim:      oklch(0.78 0.14 75 / 0.13);
-  --db-blue:           oklch(0.68 0.15 240);
-  --db-blue-dim:       oklch(0.68 0.15 240 / 0.13);
+  /* ── Legacy --db-* aliases (keeps all existing pages working) ─────────── */
+  --db-bg:            var(--bg);
+  --db-card:          var(--card);
+  --db-card-hover:    var(--hover);
+  --db-card-inset:    var(--bg-2);
+  --db-border:        oklch(0.30 0.013 250);
+  --db-border-subtle: oklch(0.265 0.012 250);
+  --db-text:          var(--fg);
+  --db-text-2:        var(--fg-2);
+  --db-text-3:        oklch(0.45 0.008 250);
+  --db-green:         var(--pos);
+  --db-green-dim:     var(--pos-soft);
+  --db-red:           var(--neg);
+  --db-red-dim:       var(--neg-soft);
+  --db-amber:         var(--warn);
+  --db-amber-dim:     var(--warn-soft);
+  --db-blue:          var(--info);
+  --db-blue-dim:      var(--info-soft);
 
   /* ── Typography ───────────────────────────────────────────────────────── */
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
 }
 
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
 /* ─── Reusable dark-card utility ──────────────────────────────────────────── */
 .db-card {
-  background:    var(--db-card);
-  border:        1px solid var(--db-border-subtle);
-  border-radius: 0.75rem;
+  background:    var(--card);
+  border:        1px solid var(--border);
+  border-radius: var(--radius);
   transition:    background 0.15s ease, border-color 0.15s ease;
 }
 
 .db-card:hover {
-  background:    var(--db-card-hover);
-  border-color:  var(--db-border);
+  background:   var(--hover);
+  border-color: oklch(0.36 0.014 250 / 0.8);
 }
 
-/* ─── Monospaced number spans ─────────────────────────────────────────────── */
-.db-num {
-  font-family: var(--font-mono);
-}
-
-/* ─── Skeleton pulse for dark backgrounds ────────────────────────────────── */
+/* ─── Skeleton pulse ──────────────────────────────────────────────────────── */
 @keyframes db-pulse {
-  0%, 100% { opacity: 0.4; }
-  50%       { opacity: 0.8; }
+  0%, 100% { opacity: 0.35; }
+  50%       { opacity: 0.7;  }
 }
 
 .db-skeleton {
-  background:  var(--db-border);
-  border-radius: 0.25rem;
-  animation: db-pulse 1.5s ease-in-out infinite;
+  background:    var(--border);
+  border-radius: 4px;
+  animation:     db-pulse 1.6s ease-in-out infinite;
 }

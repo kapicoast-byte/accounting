@@ -10,21 +10,20 @@ import CashBankCard from '../components/dashboard/CashBankCard';
 import AskYourBooksWidget from '../components/ai/AskYourBooksWidget';
 import ExpenseAnomalyAlert from '../components/ai/ExpenseAnomalyAlert';
 
-const BT_CHIP = {
-  'F&B':           { bg: 'oklch(0.78 0.14 55 / 0.18)',  color: 'oklch(0.82 0.12 60)'  },
-  'Retail':        { bg: 'oklch(0.74 0.15 155 / 0.18)', color: 'oklch(0.74 0.15 155)' },
-  'Manufacturing': { bg: 'oklch(0.70 0.15 300 / 0.18)', color: 'oklch(0.73 0.13 295)' },
-  'Services':      { bg: 'oklch(0.68 0.15 240 / 0.18)', color: 'oklch(0.72 0.14 235)' },
-  'Other':         { bg: 'oklch(0.45 0.008 250 / 0.25)', color: 'oklch(0.62 0.010 250)' },
+const BT_CHIPS = {
+  'F&B':           { bg: 'oklch(0.78 0.14 55 / 0.16)',  color: 'oklch(0.82 0.12 60)'  },
+  'Retail':        { bg: 'oklch(0.74 0.15 155 / 0.16)', color: 'oklch(0.74 0.15 155)' },
+  'Manufacturing': { bg: 'oklch(0.70 0.15 300 / 0.16)', color: 'oklch(0.73 0.13 295)' },
+  'Services':      { bg: 'oklch(0.72 0.13 240 / 0.16)', color: 'oklch(0.72 0.13 240)' },
+  'Other':         { bg: 'oklch(0.30 0.012 250 / 0.4)', color: 'oklch(0.62 0.010 250)' },
 };
 
 function RefreshIcon({ spinning }) {
   return (
-    <svg
-      viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
       strokeLinecap="round" strokeLinejoin="round"
-      className={`h-3.5 w-3.5 ${spinning ? 'animate-spin' : ''}`}
-    >
+      style={{ width: 14, height: 14 }}
+      className={spinning ? 'animate-spin' : ''}>
       {spinning
         ? <path d="M21 12a9 9 0 11-6.219-8.56" />
         : <><path d="M3 12a9 9 0 109-9M3 3v6h6" /></>}
@@ -41,7 +40,7 @@ export default function DashboardPage() {
     companies,
   });
 
-  const btChip = BT_CHIP[activeCompany?.businessType] ?? BT_CHIP['Other'];
+  const chip = BT_CHIPS[activeCompany?.businessType] ?? BT_CHIPS['Other'];
   const btLabel = BUSINESS_TYPES.find((b) => b.value === activeCompany?.businessType)?.label
     ?? activeCompany?.businessType;
   const today = new Date().toLocaleDateString('en-IN', {
@@ -49,42 +48,38 @@ export default function DashboardPage() {
   });
 
   return (
-    <div
-      className="-mx-6 -mt-8 flex min-h-screen flex-col gap-5 px-6 pb-14 pt-8"
-      style={{ background: 'var(--db-bg)', fontFamily: 'var(--font-sans)' }}
-    >
+    <div style={{ background: 'var(--bg)', fontFamily: 'var(--font-sans)' }}
+      className="-mx-6 -mt-8 flex min-h-screen flex-col gap-5 px-6 pb-16 pt-8">
 
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      {/* ── Header ──────────────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
         <div>
-          <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="text-[1.6rem] font-bold leading-tight tracking-tight"
-              style={{ color: 'var(--db-text)' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+            <h1 style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.025em', color: 'var(--fg)', lineHeight: 1.1 }}>
               {activeCompany?.companyName ?? 'Dashboard'}
             </h1>
             {activeCompany?.businessType && (
-              <span
-                className="rounded-full px-2.5 py-0.5 text-xs font-semibold"
-                style={{ background: btChip.bg, color: btChip.color }}
-              >
+              <span style={{
+                padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600,
+                background: chip.bg, color: chip.color,
+              }}>
                 {btLabel}
               </span>
             )}
           </div>
-          <p className="mt-0.5 text-xs" style={{ color: 'var(--db-text-3)' }}>
-            {today}
-          </p>
+          <p style={{ marginTop: 4, fontSize: 12, color: 'var(--fg-3)' }}>{today}</p>
         </div>
 
         <button
           type="button"
           onClick={refresh}
           disabled={loading}
-          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition disabled:opacity-50"
           style={{
-            background:  'var(--db-card)',
-            border:      '1px solid var(--db-border)',
-            color:       'var(--db-text-2)',
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '7px 14px', borderRadius: 999, fontSize: 12, fontWeight: 500,
+            background: 'var(--card-2)', border: '1px solid var(--border)',
+            color: 'var(--fg-2)', cursor: loading ? 'default' : 'pointer',
+            opacity: loading ? 0.5 : 1, transition: 'opacity 0.15s',
           }}
         >
           <RefreshIcon spinning={loading} />
@@ -92,21 +87,17 @@ export default function DashboardPage() {
         </button>
       </div>
 
-      {/* ── Error banner ───────────────────────────────────────────────────── */}
+      {/* ── Error banner ────────────────────────────────────────────────── */}
       {error && (
-        <div
-          className="rounded-xl px-4 py-3 text-sm"
-          style={{
-            background: 'var(--db-red-dim)',
-            border:     '1px solid var(--db-red)',
-            color:      'var(--db-red)',
-          }}
-        >
+        <div style={{
+          padding: '12px 16px', borderRadius: 'var(--radius)', fontSize: 13,
+          background: 'var(--neg-soft)', border: '1px solid var(--neg)', color: 'var(--neg)',
+        }}>
           {error}
         </div>
       )}
 
-      {/* ── 4 Stat cards ──────────────────────────────────────────────────── */}
+      {/* ── 4 Stat cards ────────────────────────────────────────────────── */}
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           title="Today's Sales"
@@ -142,7 +133,7 @@ export default function DashboardPage() {
         />
       </section>
 
-      {/* ── Chart (left 3/5) + Low stock (right 2/5) ──────────────────────── */}
+      {/* ── Chart (3/5) + Low Stock (2/5) ───────────────────────────────── */}
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-5">
         <div className="lg:col-span-3">
           <SalesPurchasesChart data={data?.weeklyChart} loading={loading} />
@@ -152,7 +143,7 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* ── Top selling (left 3/5) + Cash/Bank (right 2/5) ───────────────── */}
+      {/* ── Top Selling (3/5) + Cash/Bank (2/5) ─────────────────────────── */}
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-5">
         <div className="lg:col-span-3">
           <TopSellingCard data={data?.topSelling} loading={loading} />
@@ -162,7 +153,7 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* ── AI widgets (preserved as-is) ──────────────────────────────────── */}
+      {/* ── AI widgets ──────────────────────────────────────────────────── */}
       {!loading && activeCompanyId && (
         <ExpenseAnomalyAlert companyId={activeCompanyId} />
       )}
