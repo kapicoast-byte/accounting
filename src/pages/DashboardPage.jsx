@@ -1,3 +1,4 @@
+import { RefreshCw } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useDashboard } from '../hooks/useDashboard';
 import { BUSINESS_TYPES } from '../services/companyService';
@@ -63,7 +64,7 @@ export default function DashboardPage() {
           onMouseEnter={(e) => { if (!loading) { e.currentTarget.style.background = 'var(--hover)'; e.currentTarget.style.color = 'var(--fg)'; } }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--fg-3)'; }}
         >
-          <RefreshIcon spinning={loading} />
+          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
           {loading ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
@@ -124,16 +125,6 @@ export default function DashboardPage() {
       <section style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 16 }}>
         <TopSellingCard data={data?.topSelling} loading={loading} />
         <CashBankCard data={data?.cashBank} loading={loading} />
-      </section>
-
-      {/* ── Top Selling (3/5) + Cash/Bank (2/5) ─────────────────────────── */}
-      <section className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-        <div className="lg:col-span-3">
-          <TopSellingCard data={data?.topSelling} loading={loading} />
-        </div>
-        <div className="lg:col-span-2">
-          <CashBankCard data={data?.cashBank} loading={loading} />
-        </div>
       </section>
 
       {/* ── AI widgets ──────────────────────────────────────────────────── */}
