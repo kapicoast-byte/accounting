@@ -32,7 +32,6 @@ function TrendCircle({ trend }) {
 }
 
 export default function StatCard({ title, value, subtitle, accent = 'pos', trend, loading, breakdown }) {
-  const valueColor = ACCENT_COLOR[accent] ?? 'var(--pos)';
   const hasBreakdown = Array.isArray(breakdown) && breakdown.length > 1;
   const t = TREND[trend] ?? TREND.neutral;
   const valueColor = trend === 'up' ? 'var(--pos)' : trend === 'down' ? 'var(--neg)' : 'var(--fg)';
