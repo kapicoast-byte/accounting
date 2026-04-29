@@ -2,16 +2,26 @@ import LoadingSpinner from '../LoadingSpinner';
 import { formatCurrency, formatNumber } from '../../utils/format';
 
 export default function TopSellingCard({ data, loading }) {
-  const maxAmount = data?.length ? Math.max(...data.map((d) => d.amount)) : 1;
+  const maxAmount = data?.length ? Math.max(...data.map((d) => d.amount), 1) : 1;
 
   return (
     <div style={{
       background: 'var(--card)', border: '1px solid var(--border)',
       borderRadius: 'var(--radius)', padding: '20px',
     }}>
-      <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg-2)', margin: '0 0 16px' }}>
-        Top 5 selling items — this month
-      </h3>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 600, color: 'var(--fg)', margin: 0 }}>
+          Top Selling Items
+        </h3>
+        <span style={{
+          fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 20,
+          background: 'var(--card-2)', color: 'var(--fg-3)',
+          border: '1px solid var(--border)',
+        }}>
+          this month
+        </span>
+      </div>
 
       {loading ? (
         <div style={{ display: 'flex', height: 80, alignItems: 'center', justifyContent: 'center' }}>
@@ -20,29 +30,36 @@ export default function TopSellingCard({ data, loading }) {
       ) : !data?.length ? (
         <p style={{ fontSize: 13, color: 'var(--fg-3)', margin: 0 }}>No sales recorded this month.</p>
       ) : (
-        <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 0 }}>
+        <ol style={{ margin: 0, padding: 0, listStyle: 'none' }}>
           {data.map((item, idx) => {
-            const pct = maxAmount > 0 ? (item.amount / maxAmount) * 100 : 0;
+            const pct = (item.amount / maxAmount) * 100;
+            const isLast = idx === data.length - 1;
             return (
               <li
                 key={item.itemId ?? item.itemName}
-                style={{ padding: '9px 0', borderBottom: '1px solid var(--border)' }}
+                style={{
+                  padding: '10px 0',
+                  borderBottom: isLast ? 'none' : '1px solid var(--border)',
+                }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                  {/* Rank badge */}
+                {/* Top row: rank + name/category + revenue */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
                   <span style={{
-                    width: 22, height: 22, borderRadius: 6, flexShrink: 0,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: 'var(--pos-soft)',
                     fontFamily: "'JetBrains Mono', monospace",
-                    fontSize: 11, fontWeight: 600, color: 'var(--pos)',
+                    fontSize: 12, fontWeight: 500, color: 'var(--fg-3)',
+                    width: 20, flexShrink: 0, textAlign: 'right',
                   }}>
                     {idx + 1}
                   </span>
 
-                  <p style={{ flex: 1, fontSize: 13, fontWeight: 500, color: 'var(--fg)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {item.itemName}
-                  </p>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--fg)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {item.itemName}
+                    </p>
+                    {item.category && (
+                      <p style={{ fontSize: 11, color: 'var(--fg-3)', margin: 0 }}>{item.category}</p>
+                    )}
+                  </div>
 
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
                     <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, fontWeight: 600, color: 'var(--pos)', margin: 0 }}>
@@ -55,12 +72,12 @@ export default function TopSellingCard({ data, loading }) {
                 </div>
 
                 {/* Progress bar */}
-                <div style={{ height: 3, background: 'var(--card-2)', borderRadius: 2, overflow: 'hidden' }}>
+                <div style={{ height: 4, background: 'var(--border)', borderRadius: 2, marginLeft: 30, overflow: 'hidden' }}>
                   <div style={{
                     height: '100%', borderRadius: 2,
                     background: 'var(--pos)',
                     width: `${pct}%`,
-                    transition: 'width 0.6s ease',
+                    transition: 'width 0.5s ease',
                   }} />
                 </div>
               </li>

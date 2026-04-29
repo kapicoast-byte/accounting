@@ -5,7 +5,7 @@ export default function AppLayout() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
       <Navbar />
-      <main className="mx-auto max-w-6xl px-6 py-8">
+      <main style={{ maxWidth: 1200, margin: '0 auto', padding: '28px' }}>
         <Outlet />
       </main>
     </div>

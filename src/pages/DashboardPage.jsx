@@ -10,6 +10,10 @@ import CashBankCard from '../components/dashboard/CashBankCard';
 import AskYourBooksWidget from '../components/ai/AskYourBooksWidget';
 import ExpenseAnomalyAlert from '../components/ai/ExpenseAnomalyAlert';
 
+const TODAY = new Date().toLocaleDateString('en-IN', {
+  weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+});
+
 export default function DashboardPage() {
   const { activeCompany, activeCompanyId, isConsolidated, consolidatedIds, companies } = useApp();
   const { data, loading, error, refresh } = useDashboard({
@@ -24,26 +28,26 @@ export default function DashboardPage() {
     : null;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      {/* Page header */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+      {/* ── Header ── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--fg)', margin: 0 }}>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--fg)', margin: 0, letterSpacing: '-0.02em' }}>
               {activeCompany?.companyName ?? 'Dashboard'}
             </h1>
             {btLabel && (
               <span style={{
-                fontSize: 11, fontWeight: 500, padding: '2px 10px', borderRadius: 20,
-                background: 'var(--card-2)', color: 'var(--fg-3)', border: '1px solid var(--border)',
+                fontSize: 11, fontWeight: 500, padding: '2px 9px', borderRadius: 20,
+                background: 'var(--card-2)', color: 'var(--fg-3)',
+                border: '1px solid var(--border)',
               }}>
                 {btLabel}
               </span>
             )}
           </div>
-          <p style={{ fontSize: 13, color: 'var(--fg-3)', margin: '4px 0 0' }}>
-            Live overview for the active company
-          </p>
+          <p style={{ fontSize: 13, color: 'var(--fg-3)', margin: '5px 0 0' }}>{TODAY}</p>
         </div>
 
         <button
@@ -51,10 +55,10 @@ export default function DashboardPage() {
           onClick={refresh}
           disabled={loading}
           style={{
-            padding: '6px 16px', borderRadius: 8, fontSize: 13, fontWeight: 500,
+            padding: '6px 16px', borderRadius: 'var(--radius-sm)', fontSize: 13, fontWeight: 500,
             border: '1px solid var(--border)', background: 'transparent',
             color: 'var(--fg-3)', cursor: loading ? 'not-allowed' : 'pointer',
-            opacity: loading ? 0.5 : 1, transition: 'all 0.15s',
+            opacity: loading ? 0.5 : 1, transition: 'all 0.15s', flexShrink: 0,
           }}
           onMouseEnter={(e) => { if (!loading) { e.currentTarget.style.background = 'var(--hover)'; e.currentTarget.style.color = 'var(--fg)'; } }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--fg-3)'; }}
@@ -64,13 +68,13 @@ export default function DashboardPage() {
       </div>
 
       {error && (
-        <div style={{ borderRadius: 8, border: '1px solid var(--neg)', background: 'var(--neg-soft)', padding: '10px 14px', fontSize: 13, color: 'var(--neg)' }}>
+        <div style={{ borderRadius: 'var(--radius-sm)', border: '1px solid var(--neg)', background: 'var(--neg-soft)', padding: '10px 14px', fontSize: 13, color: 'var(--neg)' }}>
           {error}
         </div>
       )}
 
-      {/* Stat cards */}
-      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+      {/* ── Row 1: 4 stat cards ── */}
+      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
         <StatCard
           title="Today's sales"
           value={formatCurrency(data?.todaysSales?.total ?? 0)}
@@ -89,7 +93,7 @@ export default function DashboardPage() {
           breakdown={data?.todaysPurchases?.breakdown}
         />
         <StatCard
-          title="Receivables (owed to us)"
+          title="Receivables"
           value={formatCurrency(data?.receivables?.total ?? 0)}
           subtitle={`${data?.receivables?.count ?? 0} open invoices`}
           accent="pos"
@@ -98,7 +102,7 @@ export default function DashboardPage() {
           breakdown={data?.receivables?.breakdown}
         />
         <StatCard
-          title="Payables (we owe)"
+          title="Payables"
           value={formatCurrency(data?.payables?.total ?? 0)}
           subtitle={`${data?.payables?.count ?? 0} open bills`}
           accent="neg"
@@ -108,12 +112,16 @@ export default function DashboardPage() {
         />
       </section>
 
-      <SalesPurchasesChart data={data?.weeklyChart} loading={loading} />
-
-      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-        <CashBankCard data={data?.cashBank} loading={loading} />
+      {/* ── Row 2: Chart (left) + Low Stock (right) ── */}
+      <section style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 16 }}>
+        <SalesPurchasesChart data={data?.weeklyChart} loading={loading} />
         <LowStockCard data={data?.lowStock} loading={loading} />
+      </section>
+
+      {/* ── Row 3: Top Selling (left) + Cash & Bank (right) ── */}
+      <section style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 16 }}>
         <TopSellingCard data={data?.topSelling} loading={loading} />
+        <CashBankCard data={data?.cashBank} loading={loading} />
       </section>
 
       {!loading && activeCompanyId && (
