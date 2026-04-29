@@ -6,25 +6,25 @@ import { shortLabel } from '../../utils/dateUtils';
 import { formatCurrency } from '../../utils/format';
 import LoadingSpinner from '../LoadingSpinner';
 
-const GRID  = 'oklch(0.28 0.012 250)';
-const TICK  = 'oklch(0.52 0.010 250)';
-const SALES = 'oklch(0.74 0.15 155)';   /* --pos */
-const PURCH = 'oklch(0.72 0.13 240)';   /* --info */
-const MONO  = "'JetBrains Mono', 'Fira Code', monospace";
+const SALES_COLOR     = '#4ade80';  // --pos
+const PURCHASES_COLOR = '#60a5fa';  // --info
+const GRID_COLOR      = 'rgba(255,255,255,0.08)';
+const AXIS_COLOR      = '#6b7494';
 
-function DarkTooltip({ active, payload, label }) {
+function CustomTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
     <div style={{
-      background: 'oklch(0.245 0.014 250)',
-      border: '1px solid oklch(0.30 0.012 250 / 0.7)',
-      borderRadius: 10, padding: '10px 14px',
+      background: 'var(--card-2)', border: '1px solid var(--border-2)',
+      borderRadius: 8, padding: '10px 14px', fontSize: 12,
+      boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
     }}>
-      <p style={{ color: 'oklch(0.97 0.005 250)', fontWeight: 600, fontSize: 12, marginBottom: 6 }}>{label}</p>
+      <p style={{ color: AXIS_COLOR, marginBottom: 8, fontWeight: 500, fontSize: 11 }}>{label}</p>
       {payload.map((p) => (
-        <div key={p.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: '2px 0' }}>
-          <span style={{ color: p.color, fontSize: 11 }}>{p.name}</span>
-          <span style={{ color: 'oklch(0.97 0.005 250)', fontFamily: MONO, fontWeight: 600, fontSize: 11 }}>
+        <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 0' }}>
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: p.fill, flexShrink: 0 }} />
+          <span style={{ color: '#9ba3c0', flex: 1 }}>{p.name}</span>
+          <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#e8eaf0' }}>
             {formatCurrency(p.value)}
           </span>
         </div>
@@ -42,49 +42,60 @@ export default function SalesPurchasesChart({ data, loading }) {
   const hasAny = chartData.some((d) => d.Sales > 0 || d.Purchases > 0);
 
   return (
-    <div className="db-card flex h-full flex-col p-5">
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-        <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>
+    <div style={{
+      background: 'var(--card)', border: '1px solid var(--border)',
+      borderRadius: 'var(--radius)', padding: '20px 20px 16px',
+    }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 600, color: 'var(--fg)', margin: 0 }}>
           Sales vs Purchases
         </h3>
-        <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>last 7 days</span>
+        <span style={{
+          fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 20,
+          background: 'var(--card-2)', color: 'var(--fg-3)',
+          border: '1px solid var(--border)',
+        }}>
+          last 7 days
+        </span>
       </div>
 
-      <div style={{ marginTop: 16, flex: 1, minHeight: 220 }}>
+      <div style={{ height: 220 }}>
         {loading ? (
-          <div className="flex h-full min-h-[220px] items-center justify-center">
+          <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
             <LoadingSpinner />
           </div>
         ) : !hasAny ? (
-          <div className="flex h-full min-h-[220px] items-center justify-center"
-            style={{ fontSize: 13, color: 'var(--fg-3)' }}>
-            No activity in the last 7 days.
+          <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: 'var(--fg-3)' }}>
+            No activity in the last 7 days
           </div>
         ) : (
-          <div style={{ width: '100%', minWidth: 240, height: 220 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-                <CartesianGrid vertical={false} stroke={GRID} strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="label"
-                  tick={{ fill: TICK, fontSize: 11 }}
-                  axisLine={{ stroke: GRID }}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fill: TICK, fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)}
-                  width={40}
-                />
-                <Tooltip content={<DarkTooltip />} cursor={{ fill: 'oklch(0.28 0.012 250 / 0.45)' }} />
-                <Legend wrapperStyle={{ fontSize: 11, color: TICK, paddingTop: 10 }} />
-                <Bar dataKey="Sales"     fill={SALES} radius={[4, 4, 0, 0]} maxBarSize={28} />
-                <Bar dataKey="Purchases" fill={PURCH} radius={[4, 4, 0, 0]} maxBarSize={28} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={GRID_COLOR} vertical={false} />
+              <XAxis
+                dataKey="label"
+                tick={{ fontSize: 11, fill: AXIS_COLOR }}
+                axisLine={{ stroke: GRID_COLOR }}
+                tickLine={false}
+              />
+              <YAxis
+                tick={{ fontSize: 11, fill: AXIS_COLOR }}
+                axisLine={false}
+                tickLine={false}
+                tickFormatter={(v) => formatCurrency(v)}
+                width={88}
+              />
+              <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
+              <Legend
+                wrapperStyle={{ fontSize: 12, color: AXIS_COLOR, paddingTop: 12 }}
+                iconType="square"
+                iconSize={8}
+              />
+              <Bar dataKey="Sales" fill={SALES_COLOR} radius={[4, 4, 0, 0]} maxBarSize={36} />
+              <Bar dataKey="Purchases" fill={PURCHASES_COLOR} radius={[4, 4, 0, 0]} maxBarSize={36} />
+            </BarChart>
+          </ResponsiveContainer>
         )}
       </div>
     </div>

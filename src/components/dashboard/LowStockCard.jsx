@@ -1,77 +1,89 @@
 import LoadingSpinner from '../LoadingSpinner';
 
+function severity(qty, reorder) {
+  if ((qty ?? 0) <= 0) return 'critical';
+  if (reorder > 0 && qty <= reorder * 0.5) return 'critical';
+  return 'warning';
+}
+
 export default function LowStockCard({ data, loading }) {
+  const count = data?.totalCount ?? data?.items?.length ?? 0;
+
   return (
-    <div className="db-card flex h-full flex-col p-5">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>
+    <div style={{
+      background: 'var(--card)', border: '1px solid var(--border)',
+      borderRadius: 'var(--radius)', padding: '20px',
+    }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 600, color: 'var(--fg)', margin: 0 }}>
           Low Stock Alerts
         </h3>
-        {!loading && data != null && (
+        {!loading && count > 0 && (
           <span style={{
-            padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700,
+            fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
             background: 'var(--neg-soft)', color: 'var(--neg)',
           }}>
-            {data.totalCount}
+            {count}
           </span>
         )}
       </div>
 
       {loading ? (
-        <div style={{ marginTop: 16, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 120 }}>
-          <LoadingSpinner />
+        <div style={{ display: 'flex', height: 80, alignItems: 'center', justifyContent: 'center' }}>
+          <LoadingSpinner size="sm" />
         </div>
       ) : !data?.items?.length ? (
-        <p style={{ marginTop: 16, fontSize: 13, color: 'var(--fg-3)' }}>
-          All items above reorder level ✓
+        <p style={{ fontSize: 13, color: 'var(--fg-3)', margin: 0 }}>
+          All inventory above reorder level.
         </p>
       ) : (
-        <ul style={{ marginTop: 12, flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, listStyle: 'none', padding: 0, margin: '12px 0 0' }}>
-          {data.items.map((item) => {
-            const stock   = Number(item.currentStock ?? item.quantity ?? 0);
-            const reorder = Number(item.reorderLevel ?? 0);
-            const isCrit  = stock === 0;
-            const dotColor  = isCrit ? 'var(--neg)'  : 'var(--warn)';
-            const qtyColor  = isCrit ? 'var(--neg)'  : 'var(--warn)';
-            const qtyBg     = isCrit ? 'var(--neg-soft)' : 'var(--warn-soft)';
-            const badgeLabel = isCrit ? 'CRITICAL' : 'WARNING';
-
+        <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+          {data.items.map((item, i) => {
+            const sev = severity(item.quantity, item.reorderLevel);
+            const isCritical = sev === 'critical';
+            const isLast = i === data.items.length - 1;
             return (
               <li
                 key={item.id}
                 style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
-                  padding: '9px 12px', borderRadius: 8, background: 'var(--bg-2)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 0',
+                  borderBottom: isLast ? 'none' : '1px solid var(--border)',
+                  gap: 10,
                 }}
               >
-                {/* Severity dot + name + SKU */}
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, flex: 1 }}>
+                {/* Left: dot + name + unit */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
                   <span style={{
-                    width: 8, height: 8, borderRadius: '50%', flexShrink: 0, marginTop: 5,
-                    background: dotColor, boxShadow: `0 0 6px ${dotColor}`,
+                    width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                    background: isCritical ? 'var(--neg)' : 'var(--warn)',
+                    boxShadow: isCritical
+                      ? '0 0 6px rgba(248,113,113,0.6)'
+                      : '0 0 6px rgba(251,191,36,0.6)',
                   }} />
                   <div style={{ minWidth: 0 }}>
-                    <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {item.name ?? 'Unnamed item'}
                     </p>
-                    <p style={{ marginTop: 1, fontSize: 11, color: 'var(--fg-3)' }}>
-                      reorder ≤ {reorder} {item.unit ?? 'units'}
-                    </p>
+                    {item.sku && (
+                      <p style={{ fontSize: 11, color: 'var(--fg-3)', margin: 0 }}>{item.sku}</p>
+                    )}
                   </div>
                 </div>
 
-                {/* Qty badge + severity label */}
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, flexShrink: 0 }}>
-                  <span style={{
-                    padding: '2px 7px', borderRadius: 6, fontSize: 12, fontWeight: 700,
-                    fontFamily: 'var(--font-mono)',
-                    background: qtyBg, color: qtyColor,
+                {/* Right: qty + reorder */}
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <p style={{
+                    fontSize: 13, fontWeight: 700, margin: 0,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    color: isCritical ? 'var(--neg)' : 'var(--warn)',
                   }}>
-                    {stock} left
-                  </span>
-                  <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: dotColor }}>
-                    {badgeLabel}
-                  </span>
+                    {formatNumber(item.quantity ?? 0)}
+                  </p>
+                  <p style={{ fontSize: 11, color: 'var(--fg-3)', margin: 0 }}>
+                    reorder ≤ {formatNumber(item.reorderLevel ?? 0)}
+                  </p>
                 </div>
               </li>
             );
