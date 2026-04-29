@@ -7,12 +7,6 @@ import { useApp } from '../context/AppContext';
 import { useRole } from '../hooks/useRole';
 import { listSales, createSale, SALE_STATUS, PAYMENT_MODES } from '../services/saleService';
 import { writeSalesItems } from '../services/salesItemService';
-import {
-  extractTextFromPDF,
-  buildPdfMappingPrompt,
-  parsePdfRows,
-  extractDateRangeFromText,
-} from '../services/saleImportService';
 import { BUSINESS_TYPES } from '../services/companyService';
 import { startOfDay, endOfDay, toJsDate } from '../utils/dateUtils';
 import { formatCurrency } from '../utils/format';
@@ -74,7 +68,92 @@ function fmtDate(ts) {
   return d ? d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 }
 
-// ── Gemini AI extraction ───────────────────────────────────────────────────────
+// ── Gemini File API helpers ────────────────────────────────────────────────────
+
+async function uploadFileToGemini(file) {
+  const key = import.meta.env.VITE_GEMINI_API_KEY;
+  const formData = new FormData();
+  formData.append('file', file, file.name);
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${key}`,
+    {
+      method: 'POST',
+      headers: {
+        'X-Goog-Upload-Protocol': 'multipart',
+        'X-Goog-Upload-Command': 'start, upload, finalize',
+        'X-Goog-Upload-Header-Content-Type': file.type || 'application/pdf',
+      },
+      body: formData,
+    },
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error?.message ?? `File upload failed (${res.status})`);
+  }
+  const data = await res.json();
+  return data.file.uri;
+}
+
+async function extractDataFromFileUri(fileUri) {
+  const key = import.meta.env.VITE_GEMINI_API_KEY;
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            {
+              file_data: {
+                mime_type: 'application/pdf',
+                file_uri: fileUri,
+              },
+            },
+            {
+              text: `Extract all sales data rows from this restaurant sales report table.
+Skip rows that are headers or summary rows (Total, Min, Max, Avg, blank).
+For each valid data row return JSON with:
+itemName, category, quantity, myAmount, tax, grossSales
+Return ONLY a JSON array starting with [ no markdown no explanation.`,
+            },
+          ],
+        }],
+      }),
+    },
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error?.message ?? `Extraction failed (${res.status})`);
+  }
+  const data = await res.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+}
+
+function normaliseGeminiFileRows(arr) {
+  const today = new Date().toISOString().slice(0, 10);
+  return arr.map((item) => {
+    const qty        = Number(item.quantity)   || 1;
+    const grossSales = Number(item.grossSales) || 0;
+    const tax        = Number(item.tax)        || 0;
+    const myAmount   = Number(item.myAmount)   || 0;
+    const total      = grossSales || myAmount;
+    const subtotal   = Math.max(total - tax, 0);
+    const unitPrice  = qty > 0 ? subtotal / qty : myAmount;
+    const gstRate    = subtotal > 0 ? (tax / subtotal) * 100 : 0;
+    return {
+      id:           Math.random().toString(36).slice(2),
+      date:         today,
+      customerName: 'Walk-in',
+      lineItems:    [{ itemName: String(item.itemName ?? '').trim() || 'Item', quantity: qty, unitPrice, gstRate }],
+      paymentMode:  'Cash',
+      notes:        item.category || '',
+    };
+  });
+}
+
+// ── Gemini AI extraction (CSV/text/image) ──────────────────────────────────────
 
 let geminiCallInProgress = false;
 
@@ -334,61 +413,46 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     const isPdf     = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
     const isCsvText = /\.(csv|txt)$/i.test(file.name) || file.type.startsWith('text/');
 
-    // ── PDF path: local text extraction + 1 Gemini call for column mapping ──
+    // ── PDF path: Gemini File API upload + server-side extraction ────────────
     if (isPdf) {
       setExtracting(true);
       setExtractErr('');
       setRows([]);
       try {
-        // Step 1 — extract text from PDF locally
-        setPdfProgress('Step 1/3: Extracting text from PDF…');
-        const fullText   = await extractTextFromPDF(file);
-        const sampleText = fullText.trim().slice(0, 500);
-        console.log('PDF text sample:', sampleText);
+        const key = import.meta.env.VITE_GEMINI_API_KEY;
+        if (!key) throw new Error('Gemini API key not configured (VITE_GEMINI_API_KEY).');
 
-        // Fallback: if pdfjs couldn't extract text (scanned/image PDF), send to Gemini as document
-        if (!sampleText) {
-          setPdfProgress('Step 2/3: No text found — using AI vision fallback…');
-          const base64  = await toBase64(file);
-          const today   = new Date().toISOString().slice(0, 10);
-          await doExtract([
-            { text: buildPrompt(today) },
-            { inlineData: { mimeType: 'application/pdf', data: base64 } },
-          ]);
-          return;
-        }
+        // Step 1 — upload to Gemini File API
+        setPdfProgress('Step 1/3: Uploading to Gemini…');
+        const fileUri = await uploadFileToGemini(file);
+        console.log('Gemini file URI:', fileUri);
 
-        // Step 2 — one Gemini call to identify column headers
-        setPdfProgress('Step 2/3: AI identifying columns (1 API call)…');
-        await new Promise((r) => setTimeout(r, 3000));
-        const mappingRaw = await geminiExtract(
-          [{ text: buildPdfMappingPrompt(sampleText) }],
-          setRetryMsg,
-        );
-        console.log('Column mapping response:', mappingRaw);
+        // Step 2 — wait for file to be processed server-side
+        setPdfProgress('Step 2/3: File processing…');
+        await new Promise((r) => setTimeout(r, 5000));
 
-        let mapping = {};
-        const objMatch = mappingRaw.match(/\{[\s\S]*\}/);
-        if (objMatch) { try { mapping = JSON.parse(objMatch[0]); } catch { /* fall through */ } }
+        // Step 3 — extract structured data
+        setPdfProgress('Step 3/3: Extracting data with AI…');
+        const raw = await extractDataFromFileUri(fileUri);
+        console.log('Raw Gemini File API response:', raw);
 
-        // Step 3 — parse all rows locally
-        const pending = parsePdfRows(fullText, mapping);
-        setPdfProgress(`Step 3/3: Processing ${pending.length} rows locally…`);
-        if (!pending.length) throw new Error('No item rows found in this PDF. Please check the file and try again.');
+        const match = raw.match(/\[[\s\S]*\]/);
+        if (!match) throw new Error('AI could not read this file. Please check the file and try again.');
+        let arr;
+        try { arr = JSON.parse(match[0]); }
+        catch { throw new Error('AI returned invalid JSON. Please try again.'); }
+        if (!Array.isArray(arr) || !arr.length) throw new Error('No data rows found in this PDF.');
 
-        const today              = new Date().toISOString().slice(0, 10);
-        const { dateFrom, dateTo } = extractDateRangeFromText(fullText);
+        const pending = normaliseGeminiFileRows(arr);
+        const today   = new Date().toISOString().slice(0, 10);
 
-        setPendingRows(pending);
-        setPdfRangeFrom(dateFrom || '');
-        setPdfDetected(
-          dateFrom && dateTo
-            ? `${formatISODate(dateFrom)} to ${formatISODate(dateTo)}`
-            : formatISODate(dateFrom || dateTo),
-        );
-        setImportDate(dateTo || dateFrom || today);
         setPdfProgress(`Done! ${pending.length} items found.`);
         await new Promise((r) => setTimeout(r, 700));
+
+        setPendingRows(pending);
+        setPdfRangeFrom('');
+        setPdfDetected('');
+        setImportDate(today);
         setPdfDateStep(true);
       } catch (e) {
         setExtractErr(e.message ?? 'PDF extraction failed.');

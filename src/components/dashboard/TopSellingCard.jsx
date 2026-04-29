@@ -10,66 +10,84 @@ const RANK_COLORS = [
 ];
 
 export default function TopSellingCard({ data, loading }) {
-  const maxQty = data?.length ? Math.max(...data.map((d) => d.qty), 1) : 1;
+  const maxAmount = data?.length ? Math.max(...data.map((d) => d.amount), 1) : 1;
 
   return (
-    <div className="db-card h-full p-5">
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-        <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>
+    <div style={{
+      background: 'var(--card)', border: '1px solid var(--border)',
+      borderRadius: 'var(--radius)', padding: '20px',
+    }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 600, color: 'var(--fg)', margin: 0 }}>
           Top Selling Items
         </h3>
-        <span style={{ fontSize: 11, color: 'var(--fg-3)' }}>this month</span>
+        <span style={{
+          fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 20,
+          background: 'var(--card-2)', color: 'var(--fg-3)',
+          border: '1px solid var(--border)',
+        }}>
+          this month
+        </span>
       </div>
 
       {loading ? (
-        <div style={{ marginTop: 16, display: 'flex', height: 96, alignItems: 'center', justifyContent: 'center' }}>
-          <LoadingSpinner />
+        <div style={{ display: 'flex', height: 80, alignItems: 'center', justifyContent: 'center' }}>
+          <LoadingSpinner size="sm" />
         </div>
       ) : !data?.length ? (
-        <p style={{ marginTop: 16, fontSize: 13, color: 'var(--fg-3)' }}>
-          No sales recorded this month.
-        </p>
+        <p style={{ fontSize: 13, color: 'var(--fg-3)', margin: 0 }}>No sales recorded this month.</p>
       ) : (
-        <ol style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 14, padding: 0, listStyle: 'none' }}>
+        <ol style={{ margin: 0, padding: 0, listStyle: 'none' }}>
           {data.map((item, idx) => {
-            const pct   = maxQty > 0 ? (item.qty / maxQty) * 100 : 0;
-            const rank  = RANK_COLORS[idx] ?? RANK_COLORS[4];
-
+            const pct = (item.amount / maxAmount) * 100;
+            const isLast = idx === data.length - 1;
             return (
-              <li key={item.itemId ?? item.itemName}>
-                {/* Name + qty row */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                    <span style={{
-                      width: 20, height: 20, borderRadius: 5, flexShrink: 0,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      background: rank.bg, color: rank.fg,
-                      fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)',
-                    }}>
-                      {idx + 1}
-                    </span>
-                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {item.itemName}
-                    </span>
-                  </div>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--pos)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>
-                    {formatNumber(item.qty)} sold
+              <li
+                key={item.itemId ?? item.itemName}
+                style={{
+                  padding: '10px 0',
+                  borderBottom: isLast ? 'none' : '1px solid var(--border)',
+                }}
+              >
+                {/* Top row: rank + name/category + revenue */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                  <span style={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: 12, fontWeight: 500, color: 'var(--fg-3)',
+                    width: 20, flexShrink: 0, textAlign: 'right',
+                  }}>
+                    {idx + 1}
                   </span>
+
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--fg)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {item.itemName}
+                    </p>
+                    {item.category && (
+                      <p style={{ fontSize: 11, color: 'var(--fg-3)', margin: 0 }}>{item.category}</p>
+                    )}
+                  </div>
+
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, fontWeight: 600, color: 'var(--pos)', margin: 0 }}>
+                      {formatCurrency(item.amount)}
+                    </p>
+                    <p style={{ fontSize: 11, color: 'var(--fg-3)', margin: 0 }}>
+                      {formatNumber(item.qty)} sold
+                    </p>
+                  </div>
                 </div>
 
                 {/* Progress bar */}
-                <div style={{ marginTop: 6, height: 5, width: '100%', overflow: 'hidden', borderRadius: 999, background: 'var(--bg-2)' }}>
+                <div style={{ height: 4, background: 'var(--border)', borderRadius: 2, marginLeft: 30, overflow: 'hidden' }}>
                   <div style={{
-                    height: '100%', borderRadius: 999,
-                    width: `${pct}%`, background: 'var(--pos)',
-                    transition: 'width 0.7s ease',
+                    height: '100%', borderRadius: 2,
+                    background: 'var(--pos)',
+                    width: `${pct}%`,
+                    transition: 'width 0.5s ease',
                   }} />
                 </div>
-
-                {/* Revenue */}
-                <p style={{ marginTop: 3, textAlign: 'right', fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
-                  {formatCurrency(item.amount)}
-                </p>
               </li>
             );
           })}
