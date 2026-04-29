@@ -135,43 +135,49 @@ Return ONLY a valid JSON array. No markdown, no explanation, no code blocks. Jus
 }
 
 // Local column-name guesser — no Gemini needed for CSV/Excel
-function guessMapping(headers) {
-  const lower = headers.map((h) => String(h).toLowerCase().trim());
-  const find = (candidates) => {
-    for (const cand of candidates) {
-      const c = cand.toLowerCase();
-      let i = lower.findIndex((h) => h === c);
-      if (i !== -1) return headers[i];
-      i = lower.findIndex((h) => h.includes(c) || c.includes(h));
-      if (i !== -1) return headers[i];
-    }
-    return '';
-  };
-  return {
-    itemName:    find(['item_name', 'item', 'name', 'product', 'description']),
-    category:    find(['parent_category', 'category name', 'category', 'type']),
-    quantity:    find(['units sold', 'qty', 'quantity', 'units']),
-    totalAmount: find(['gross sales', 'gross_sales', 'total_amount', 'total', 'amount']),
-    taxAmount:   find(['tax_amount', 'tax amount', 'tax', 'gst']),
-    unitPrice:   find(['unit_price', 'my amount', 'price', 'rate']),
-    date:        find(['date', 'time', 'day']),
-    paymentMode: find(['payment', 'mode', 'method']),
-  };
+function autoMap(headers) {
+  const mapping = {};
+  headers.forEach((h) => {
+    const lower = h.toLowerCase().trim();
+    if (['item', 'name', 'item name', 'itemname', 'product', 'description'].includes(lower))
+      mapping.itemName = h;
+    if (['qty', 'quantity', 'units', 'count', 'units sold'].includes(lower))
+      mapping.quantity = h;
+    if (['price', 'rate', 'unit price', 'unitprice', 'my amount', 'myamount'].includes(lower))
+      mapping.unitPrice = h;
+    if (['gross sales', 'grosssales', 'gross_sales', 'total', 'amount', 'total amount', 'totalamount', 'total_amount'].includes(lower))
+      mapping.totalAmount = h;
+    if (['tax', 'gst', 'tax amount', 'taxamount', 'tax_amount'].includes(lower))
+      mapping.taxAmount = h;
+    if (['category', 'parent_category', 'type', 'group', 'category name'].includes(lower))
+      mapping.category = h;
+    if (['date', 'sale date', 'order date', 'saledate'].includes(lower))
+      mapping.date = h;
+    if (['payment', 'mode', 'method', 'payment mode', 'paymentmode'].includes(lower))
+      mapping.paymentMode = h;
+  });
+  return mapping;
 }
 
 function applyMappingToData(data, mapping, today) {
   return data
     .filter((row) => row[mapping.itemName])
     .map((row) => {
-      const qty       = Number(row[mapping.quantity])    || 1;
-      const unitPrice = Number(row[mapping.unitPrice])   || 0;
+      const qty        = Number(row[mapping.quantity])    || 1;
+      const rawPrice   = Number(row[mapping.unitPrice])   || 0;
+      const totalAmt   = Number(row[mapping.totalAmount]) || 0;
+      const taxAmt     = Number(row[mapping.taxAmount])   || 0;
+      const subtotal   = totalAmt ? Math.max(totalAmt - taxAmt, 0) : 0;
+      const unitPrice  = rawPrice || (subtotal > 0 ? subtotal / qty : totalAmt / Math.max(qty, 1));
+      const gstRate    = subtotal > 0 && taxAmt > 0 ? (taxAmt / subtotal) * 100 : 0;
+      const category   = (mapping.category && String(row[mapping.category] ?? '').trim()) || '';
       return {
         id:           Math.random().toString(36).slice(2),
         date:         (mapping.date && row[mapping.date]) || today,
         customerName: 'Walk-in',
-        lineItems:    [{ itemName: String(row[mapping.itemName] ?? '').trim() || 'Item', quantity: qty, unitPrice, gstRate: 0 }],
+        lineItems:    [{ itemName: String(row[mapping.itemName] ?? '').trim() || 'Item', quantity: qty, unitPrice, gstRate }],
         paymentMode:  normalisePaymentMode((mapping.paymentMode && row[mapping.paymentMode]) || ''),
-        notes:        '',
+        notes:        category,
       };
     });
 }
@@ -387,16 +393,11 @@ function ImportModal({ open, onClose, companyId, onImported }) {
         const data    = XLSX.utils.sheet_to_json(ws, { defval: '' });
         if (!data.length) throw new Error('Excel file appears to be empty.');
         const headers = Object.keys(data[0]);
-        const mapping = guessMapping(headers);
-        const today   = new Date().toISOString().slice(0, 10);
-        if (!mapping.itemName) {
-          setCsvHeaders(headers);
-          setCsvRawRows(data);
-          setColMapping({ itemName: '', category: '', quantity: '', totalAmount: '', taxAmount: '', unitPrice: '', date: '', paymentMode: '' });
-          setShowColMapper(true);
-        } else {
-          setRowsAndSelect(applyMappingToData(data, mapping, today));
-        }
+        const detected = autoMap(headers);
+        setCsvHeaders(headers);
+        setCsvRawRows(data);
+        setColMapping({ itemName: '', category: '', quantity: '', totalAmount: '', taxAmount: '', unitPrice: '', date: '', paymentMode: '', ...detected });
+        setShowColMapper(true);
       } catch (e) {
         setExtractErr(e.message ?? 'Excel parsing failed.');
       } finally {
@@ -415,27 +416,21 @@ function ImportModal({ open, onClose, companyId, onImported }) {
       return;
     }
 
-    // ── CSV path: parse locally, map columns without Gemini ──────────────────
+    // ── CSV path: parse locally, always show mapper with auto-detected values ──
     const content = await file.text();
     const parsed  = Papa.parse(content, { header: true, skipEmptyLines: true });
     if (!parsed.data.length) { setExtractErr('CSV file appears to be empty.'); return; }
 
-    const headers = Object.keys(parsed.data[0]);
-    const mapping = guessMapping(headers);
-    const today   = new Date().toISOString().slice(0, 10);
+    const headers  = Object.keys(parsed.data[0]);
+    const detected = autoMap(headers);
 
     setExtracting(true);
     setExtractErr('');
     setRows([]);
-
-    if (!mapping.itemName) {
-      setCsvHeaders(headers);
-      setCsvRawRows(parsed.data);
-      setColMapping({ itemName: '', category: '', quantity: '', totalAmount: '', taxAmount: '', unitPrice: '', date: '', paymentMode: '' });
-      setShowColMapper(true);
-    } else {
-      setRowsAndSelect(applyMappingToData(parsed.data, mapping, today));
-    }
+    setCsvHeaders(headers);
+    setCsvRawRows(parsed.data);
+    setColMapping({ itemName: '', category: '', quantity: '', totalAmount: '', taxAmount: '', unitPrice: '', date: '', paymentMode: '', ...detected });
+    setShowColMapper(true);
     setExtracting(false);
   }
 
@@ -445,15 +440,21 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     const mapped = csvRawRows
       .filter((row) => row[colMapping.itemName])
       .map((row) => {
-        const qty       = Number(row[colMapping.quantity])  || 1;
-        const unitPrice = Number(row[colMapping.unitPrice]) || 0;
+        const qty       = Number(row[colMapping.quantity])    || 1;
+        const rawPrice  = Number(row[colMapping.unitPrice])   || 0;
+        const totalAmt  = Number(row[colMapping.totalAmount]) || 0;
+        const taxAmt    = Number(row[colMapping.taxAmount])   || 0;
+        const subtotal  = totalAmt ? Math.max(totalAmt - taxAmt, 0) : 0;
+        const unitPrice = rawPrice || (subtotal > 0 ? subtotal / qty : totalAmt / Math.max(qty, 1));
+        const gstRate   = subtotal > 0 && taxAmt > 0 ? (taxAmt / subtotal) * 100 : 0;
+        const category  = (colMapping.category && String(row[colMapping.category] ?? '').trim()) || '';
         return {
           id:           Math.random().toString(36).slice(2),
           date:         (colMapping.date && row[colMapping.date]) || today,
           customerName: 'Walk-in',
-          lineItems:    [{ itemName: String(row[colMapping.itemName] ?? '').trim() || 'Item', quantity: qty, unitPrice, gstRate: 0 }],
+          lineItems:    [{ itemName: String(row[colMapping.itemName] ?? '').trim() || 'Item', quantity: qty, unitPrice, gstRate }],
           paymentMode:  normalisePaymentMode((colMapping.paymentMode && row[colMapping.paymentMode]) || ''),
-          notes:        '',
+          notes:        category,
         };
       });
     setRowsAndSelect(mapped);
@@ -650,40 +651,59 @@ function ImportModal({ open, onClose, companyId, onImported }) {
           {/* Column mapper */}
           {showColMapper && rows.length === 0 && savedCount === null && (
             <div className="space-y-4">
-              <div className="rounded-xl px-4 py-3"
-                style={{ background: 'var(--db-amber-dim)', border: '1px solid var(--db-amber)' }}>
-                <p className="text-sm font-medium" style={{ color: 'var(--db-amber)' }}>
-                  Couldn't auto-detect columns — map them manually below.
-                </p>
-                <p className="mt-0.5 text-xs" style={{ color: 'var(--db-text-2)' }}>
-                  {csvRawRows.length} rows detected
-                </p>
-              </div>
+              {/* Header banner */}
+              {(() => {
+                const autoDetected = autoMap(csvHeaders);
+                const detectedCount = Object.keys(autoDetected).length;
+                if (detectedCount === 0) return (
+                  <div className="rounded-xl px-4 py-3" style={{ background: 'var(--db-amber-dim)', border: '1px solid var(--db-amber)' }}>
+                    <p className="text-sm font-medium" style={{ color: 'var(--db-amber)' }}>Couldn't auto-detect columns — map them below.</p>
+                    <p className="mt-0.5 text-xs" style={{ color: 'var(--db-text-2)' }}>{csvRawRows.length} rows · {csvHeaders.length} columns</p>
+                  </div>
+                );
+                return (
+                  <div className="rounded-xl px-4 py-3" style={{ background: 'var(--db-green-dim)', border: '1px solid var(--db-green)' }}>
+                    <p className="text-sm font-medium" style={{ color: 'var(--db-green)' }}>
+                      ✓ Auto-detected {detectedCount} column{detectedCount > 1 ? 's' : ''} — review and confirm below.
+                    </p>
+                    <p className="mt-0.5 text-xs" style={{ color: 'var(--db-text-2)' }}>{csvRawRows.length} rows · {csvHeaders.length} columns</p>
+                  </div>
+                );
+              })()}
+
+              {/* Mapping grid */}
               <div className="grid grid-cols-2 gap-3">
                 {[
                   { key: 'itemName',    label: 'Item Name *' },
+                  { key: 'category',    label: 'Category' },
                   { key: 'quantity',    label: 'Quantity' },
                   { key: 'unitPrice',   label: 'Unit Price' },
-                  { key: 'totalAmount', label: 'Total Amount' },
+                  { key: 'totalAmount', label: 'Total / Gross Sales' },
+                  { key: 'taxAmount',   label: 'Tax / GST' },
                   { key: 'date',        label: 'Date' },
                   { key: 'paymentMode', label: 'Payment Mode' },
-                ].map(({ key, label }) => (
-                  <div key={key}>
-                    <label className="mb-1 block text-xs font-medium" style={{ color: 'var(--db-text-2)' }}>
-                      {label}
-                    </label>
-                    <select
-                      value={colMapping[key] ?? ''}
-                      onChange={(e) => setColMapping((p) => ({ ...p, [key]: e.target.value }))}
-                      className="w-full rounded-lg px-2 py-1.5 text-sm outline-none"
-                      style={iStyle()}
-                    >
-                      <option value="">— skip —</option>
-                      {csvHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
-                    </select>
-                  </div>
-                ))}
+                ].map(({ key, label }) => {
+                  const isDetected = !!autoMap(csvHeaders)[key] && colMapping[key] === autoMap(csvHeaders)[key];
+                  return (
+                    <div key={key}>
+                      <label className="mb-1 flex items-center gap-1.5 text-xs font-medium" style={{ color: 'var(--db-text-2)' }}>
+                        {label}
+                        {isDetected && <span style={{ color: 'var(--db-green)', fontSize: 10 }}>✓ auto</span>}
+                      </label>
+                      <select
+                        value={colMapping[key] ?? ''}
+                        onChange={(e) => setColMapping((p) => ({ ...p, [key]: e.target.value }))}
+                        className="w-full rounded-lg px-2 py-1.5 text-sm outline-none"
+                        style={{ ...iStyle(), borderColor: isDetected ? 'var(--db-green)' : undefined }}
+                      >
+                        <option value="">— skip —</option>
+                        {csvHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
+                      </select>
+                    </div>
+                  );
+                })}
               </div>
+
               <div className="flex gap-3">
                 <button type="button" onClick={applyColumnMapping} disabled={!colMapping.itemName}
                   className="rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-40"
@@ -691,7 +711,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
                   Import {csvRawRows.length} Rows
                 </button>
                 <button type="button"
-                  onClick={() => { setShowColMapper(false); setCsvHeaders([]); setCsvRawRows([]); }}
+                  onClick={() => { setShowColMapper(false); setCsvHeaders([]); setCsvRawRows([]); setFile(null); }}
                   className="rounded-xl px-4 py-2 text-sm transition"
                   style={{ border: '1px solid var(--db-border)', color: 'var(--db-text-2)', background: 'transparent' }}>
                   Cancel
