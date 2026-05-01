@@ -117,6 +117,36 @@ function parseImportDate(str) {
   return Timestamp.now();
 }
 
+// ─── Gemini File API upload ────────────────────────────────────────────────────
+
+export async function uploadPdfToGemini(file) {
+  const key = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!key) throw new Error('Gemini API key not configured (VITE_GEMINI_API_KEY).');
+
+  const ab = await file.arrayBuffer();
+  const uploadRes = await fetch(
+    `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${key}`,
+    {
+      method: 'POST',
+      headers: {
+        'X-Goog-Upload-Command': 'start, upload, finalize',
+        'X-Goog-Upload-Header-Content-Type': 'application/pdf',
+        'X-Goog-Upload-Header-Content-Length': String(ab.byteLength),
+        'Content-Type': 'application/pdf',
+      },
+      body: ab,
+    },
+  );
+  if (!uploadRes.ok) {
+    const err = await uploadRes.json().catch(() => ({}));
+    throw new Error(err?.error?.message ?? `File upload failed (${uploadRes.status})`);
+  }
+  const data = await uploadRes.json();
+  const fileUri = data?.file?.uri;
+  if (!fileUri) throw new Error('File upload did not return a URI.');
+  return fileUri;
+}
+
 export async function importSaleRow(companyId, row, batchId, orderIndex) {
   const qty         = Number(row.quantity)    || 1;
   const unitPrice   = Number(row.unitPrice)   || 0;

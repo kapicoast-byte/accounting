@@ -7,7 +7,7 @@ import { useApp } from '../context/AppContext';
 import { useRole } from '../hooks/useRole';
 import { listSales, createSale, SALE_STATUS, PAYMENT_MODES } from '../services/saleService';
 import { writeSalesItems } from '../services/salesItemService';
-import { importPDFSales } from '../services/saleImportService';
+import { uploadPdfToGemini } from '../services/saleImportService';
 import { BUSINESS_TYPES } from '../services/companyService';
 import { startOfDay, endOfDay, toJsDate } from '../utils/dateUtils';
 import { formatCurrency } from '../utils/format';
@@ -69,133 +69,54 @@ function fmtDate(ts) {
   return d ? d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 }
 
-// ── Gemini AI extraction (CSV/text/image) ──────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
-let geminiCallInProgress = false;
-
-async function geminiExtract(parts, onRetry, retries = 3, delayMs = 10000) {
-  if (geminiCallInProgress) {
-    throw new Error('Please wait, AI is processing…');
-  }
-  geminiCallInProgress = true;
+async function geminiGenerateContent(parts, retries = 3) {
   const key = import.meta.env.VITE_GEMINI_API_KEY;
-  if (!key) {
-    geminiCallInProgress = false;
-    throw new Error('Gemini API key not configured (VITE_GEMINI_API_KEY).');
-  }
-  try {
-    for (let attempt = 0; attempt < retries; attempt++) {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contents: [{ parts }] }),
-        },
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-        console.log('Raw Gemini response:', raw);
-        return raw;
-      }
-      const errBody = await res.json().catch(() => ({}));
-      const msg   = errBody?.error?.message ?? `Gemini error ${res.status}`;
-      const is429 = res.status === 429 || msg.includes('Resource exhausted');
-      if (!is429 || attempt >= retries - 1) throw new Error(msg);
-      if (onRetry) {
-        let secs = Math.round(delayMs / 1000);
-        onRetry(`AI is busy, retrying in ${secs} seconds…`);
-        await new Promise((resolve) => {
-          const iv = setInterval(() => {
-            secs--;
-            if (secs <= 0) { clearInterval(iv); resolve(); }
-            else onRetry(`AI is busy, retrying in ${secs} seconds…`);
-          }, 1000);
-        });
-        onRetry('');
-      } else {
-        await new Promise((r) => setTimeout(r, delayMs));
-      }
+  if (!key) throw new Error('Gemini API key not configured (VITE_GEMINI_API_KEY).');
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts }] }),
+      },
+    );
+    if (res.ok) {
+      const data = await res.json();
+      return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
     }
-  } finally {
-    geminiCallInProgress = false;
+    const errBody = await res.json().catch(() => ({}));
+    const msg   = errBody?.error?.message ?? `Gemini error ${res.status}`;
+    const is429 = res.status === 429 || msg.includes('Resource exhausted');
+    if (!is429 || attempt >= retries - 1) throw new Error(msg);
+    await new Promise((r) => setTimeout(r, 8000 * (attempt + 1)));
   }
 }
 
-function buildPrompt(today) {
-  return `Extract all sales transactions from this document. Today's date is ${today}.
-Return a JSON array. Each element must have:
-- date: "YYYY-MM-DD" (use today if not found)
-- customerName: string (use "Walk-in" if unknown)
-- lineItems: array of { itemName: string, quantity: number, unitPrice: number, gstRate: number }
-- paymentMode: one of "Cash","Card","UPI","Credit" (use "Cash" if unknown)
-- notes: string (use "" if none)
-Return ONLY a valid JSON array. No markdown, no explanation, no code blocks. Just raw JSON starting with [ and ending with ]`;
-}
-
-// Local column-name guesser — no Gemini needed for CSV/Excel
-function autoMap(headers) {
-  const mapping = {};
-  headers.forEach((h) => {
-    const lower = h.toLowerCase().trim();
-    if (['item', 'name', 'item name', 'itemname', 'product', 'description'].includes(lower))
-      mapping.itemName = h;
-    if (['qty', 'quantity', 'units', 'count', 'units sold'].includes(lower))
-      mapping.quantity = h;
-    if (['price', 'rate', 'unit price', 'unitprice', 'my amount', 'myamount'].includes(lower))
-      mapping.unitPrice = h;
-    if (['gross sales', 'grosssales', 'gross_sales', 'total', 'amount', 'total amount', 'totalamount', 'total_amount'].includes(lower))
-      mapping.totalAmount = h;
-    if (['tax', 'gst', 'tax amount', 'taxamount', 'tax_amount'].includes(lower))
-      mapping.taxAmount = h;
-    if (['category', 'parent_category', 'type', 'group', 'category name'].includes(lower))
-      mapping.category = h;
-    if (['date', 'sale date', 'order date', 'saledate'].includes(lower))
-      mapping.date = h;
-    if (['payment', 'mode', 'method', 'payment mode', 'paymentmode'].includes(lower))
-      mapping.paymentMode = h;
-  });
-  return mapping;
-}
-
-function applyMappingToData(data, mapping, today) {
-  return data
-    .filter((row) => row[mapping.itemName])
-    .map((row) => {
-      const qty        = Number(row[mapping.quantity])    || 1;
-      const rawPrice   = Number(row[mapping.unitPrice])   || 0;
-      const totalAmt   = Number(row[mapping.totalAmount]) || 0;
-      const taxAmt     = Number(row[mapping.taxAmount])   || 0;
-      const subtotal   = totalAmt ? Math.max(totalAmt - taxAmt, 0) : 0;
-      const unitPrice  = rawPrice || (subtotal > 0 ? subtotal / qty : totalAmt / Math.max(qty, 1));
-      const gstRate    = subtotal > 0 && taxAmt > 0 ? (taxAmt / subtotal) * 100 : 0;
-      const category   = (mapping.category && String(row[mapping.category] ?? '').trim()) || '';
-      return {
-        id:           Math.random().toString(36).slice(2),
-        date:         (mapping.date && row[mapping.date]) || today,
-        customerName: 'Walk-in',
-        lineItems:    [{ itemName: String(row[mapping.itemName] ?? '').trim() || 'Item', quantity: qty, unitPrice, gstRate }],
-        paymentMode:  normalisePaymentMode((mapping.paymentMode && row[mapping.paymentMode]) || ''),
-        notes:        category,
-      };
-    });
-}
-
-
-function toBase64(file) {
-  return new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload  = (e) => resolve(e.target.result.split(',')[1]);
-    fr.onerror = reject;
-    fr.readAsDataURL(file);
-  });
-}
-
-function formatISODate(d) {
-  if (!d) return '';
-  const dt = new Date(d + 'T12:00:00');
-  return isNaN(dt.getTime()) ? d : dt.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+function guessMapping(headers) {
+  const lower = headers.map((h) => String(h).toLowerCase().trim());
+  const find = (candidates) => {
+    for (const cand of candidates) {
+      const c = cand.toLowerCase();
+      let i = lower.findIndex((h) => h === c);
+      if (i !== -1) return headers[i];
+      i = lower.findIndex((h) => h.includes(c) || c.includes(h));
+      if (i !== -1) return headers[i];
+    }
+    return '';
+  };
+  return {
+    itemName:    find(['item_name', 'item', 'name', 'product', 'description']),
+    category:    find(['parent_category', 'category name', 'category', 'type']),
+    quantity:    find(['units sold', 'qty', 'quantity', 'units']),
+    unitPrice:   find(['unit_price', 'my amount', 'price', 'rate']),
+    totalAmount: find(['gross sales', 'gross_sales', 'total_amount', 'total', 'amount']),
+    taxAmount:   find(['tax_amount', 'tax amount', 'tax', 'gst']),
+    date:        find(['date', 'time', 'day']),
+    paymentMode: find(['payment', 'mode', 'method']),
+  };
 }
 
 function normalisePaymentMode(raw) {
@@ -206,81 +127,49 @@ function normalisePaymentMode(raw) {
   return 'Cash';
 }
 
-function normaliseRows(arr, today) {
-  return arr.map((item) => {
-    if (!item.lineItems && item.itemName) {
-      const qty       = Number(item.quantity)  || 1;
-      const unitPrice = Number(item.unitPrice) || 0;
-      return {
-        id:           Math.random().toString(36).slice(2),
-        date:         item.date || today,
-        customerName: item.customerName || 'Walk-in',
-        lineItems:    [{ itemName: String(item.itemName).trim() || 'Item', quantity: qty, unitPrice, gstRate: 0 }],
-        paymentMode:  normalisePaymentMode(item.paymentMode),
-        notes:        item.notes || '',
-      };
-    }
-    return {
-      id:           Math.random().toString(36).slice(2),
-      date:         item.date || today,
-      customerName: item.customerName || 'Walk-in',
-      lineItems:    (item.lineItems || []).map((l) => ({
-        itemName:  l.itemName  || 'Item',
-        quantity:  Number(l.quantity)  || 1,
-        unitPrice: Number(l.unitPrice) || 0,
-        gstRate:   Number(l.gstRate)   || 0,
-      })),
-      paymentMode: PAYMENT_MODES.includes(item.paymentMode) ? item.paymentMode : 'Cash',
-      notes:       item.notes || '',
-    };
-  });
-}
-
 function dateToTs(dateStr) {
   if (!dateStr) return Timestamp.now();
   const d = new Date(dateStr + 'T12:00:00');
   return isNaN(d.getTime()) ? Timestamp.now() : Timestamp.fromDate(d);
 }
 
+const FIELD_DEFS = [
+  { key: 'itemName',    label: 'Item Name',   required: true  },
+  { key: 'category',   label: 'Category',     required: false },
+  { key: 'quantity',   label: 'Quantity',     required: false },
+  { key: 'unitPrice',  label: 'Unit Price',   required: false },
+  { key: 'totalAmount',label: 'Total Amount', required: false },
+  { key: 'taxAmount',  label: 'Tax / GST',    required: false },
+  { key: 'date',       label: 'Date',         required: false },
+  { key: 'paymentMode',label: 'Payment Mode', required: false },
+];
+
 // ── Import Modal ───────────────────────────────────────────────────────────────
 
 function ImportModal({ open, onClose, companyId, onImported }) {
-  const [tab,        setTab]        = useState('upload');
-  const [file,       setFile]       = useState(null);
-  const [paste,      setPaste]      = useState('');
-  const [extracting, setExtracting] = useState(false);
-  const [extractErr, setExtractErr] = useState('');
-  const [rows,       setRows]       = useState([]);
-  const [saving,     setSaving]     = useState(false);
-  const [saveErr,    setSaveErr]    = useState('');
-  const [savedCount, setSavedCount] = useState(null);
-  const fileRef = useRef(null);
-  const [csvHeaders,    setCsvHeaders]    = useState([]);
-  const [csvRawRows,    setCsvRawRows]    = useState([]);
-  const [colMapping,    setColMapping]    = useState({});
-  const [showColMapper, setShowColMapper] = useState(false);
-  const [retryMsg,       setRetryMsg]       = useState('');
-  const [pdfDateStep,    setPdfDateStep]    = useState(false);
-  const [pdfDetected,    setPdfDetected]    = useState('');
-  const [importDate,     setImportDate]     = useState('');
-  const [pendingRows,    setPendingRows]    = useState([]);
-  const [pdfRangeFrom,   setPdfRangeFrom]   = useState('');
-  const [reportDateFrom, setReportDateFrom] = useState('');
-  const [reportDateTo,   setReportDateTo]   = useState('');
-  const [pdfProgress,    setPdfProgress]    = useState('');
+  const [step,           setStep]           = useState('upload'); // upload | mapping | preview | done
+  const [file,           setFile]           = useState(null);
+  const [extracting,     setExtracting]     = useState(false);
+  const [extractErr,     setExtractErr]     = useState('');
+  const [progress,       setProgress]       = useState('');
+  const [csvHeaders,     setCsvHeaders]     = useState([]);
+  const [csvRawRows,     setCsvRawRows]     = useState([]);
+  const [colMapping,     setColMapping]     = useState({});
+  const [rows,           setRows]           = useState([]);
   const [selectedRowIds, setSelectedRowIds] = useState(new Set());
+  const [saving,         setSaving]         = useState(false);
+  const [saveErr,        setSaveErr]        = useState('');
+  const [savedCount,     setSavedCount]     = useState(null);
+  const fileRef = useRef(null);
+
+  const today = new Date().toISOString().slice(0, 10);
 
   useEffect(() => {
     if (open) return;
-    setFile(null); setPaste(''); setRows([]);
-    setExtractErr(''); setSaveErr(''); setSavedCount(null);
-    setExtracting(false); setSaving(false); setTab('upload');
-    setCsvHeaders([]); setCsvRawRows([]); setColMapping({}); setShowColMapper(false);
-    setRetryMsg('');
-    setPdfDateStep(false); setPdfDetected(''); setImportDate(''); setPendingRows([]);
-    setPdfRangeFrom(''); setReportDateFrom(''); setReportDateTo('');
-    setPdfProgress('');
-    setSelectedRowIds(new Set());
+    setStep('upload'); setFile(null); setExtracting(false); setExtractErr('');
+    setProgress(''); setCsvHeaders([]); setCsvRawRows([]); setColMapping({});
+    setRows([]); setSelectedRowIds(new Set());
+    setSaving(false); setSaveErr(''); setSavedCount(null);
   }, [open]);
 
   function setRowsAndSelect(newRows) {
@@ -289,115 +178,123 @@ function ImportModal({ open, onClose, companyId, onImported }) {
   }
 
   function updateRow(id, field, val) {
-    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: val } : r)));
+    setRows((prev) => prev.map((r) => r.id === id ? { ...r, [field]: val } : r));
   }
 
   function updateLineItem(rowId, field, val) {
-    setRows((prev) =>
-      prev.map((r) => {
-        if (r.id !== rowId) return r;
+    setRows((prev) => prev.map((r) => {
+      if (r.id !== rowId) return r;
+      return {
+        ...r,
+        lineItems: r.lineItems.map((l, i) =>
+          i === 0 ? { ...l, [field]: field === 'itemName' ? val : (Number(val) || 0) } : l,
+        ),
+      };
+    }));
+  }
+
+  function applyMapping() {
+    if (!colMapping.itemName) return;
+    const mapped = csvRawRows
+      .filter((row) => row[colMapping.itemName])
+      .map((row) => {
+        const qty      = Number(row[colMapping.quantity])    || 1;
+        const unitPri  = Number(row[colMapping.unitPrice])   || 0;
+        const totalAmt = Number(row[colMapping.totalAmount]) || (qty * unitPri);
+        const taxAmt   = Number(row[colMapping.taxAmount])   || 0;
         return {
-          ...r,
-          lineItems: r.lineItems.map((l, i) =>
-            i === 0 ? { ...l, [field]: field === 'itemName' ? val : (Number(val) || 0) } : l,
-          ),
+          id:          Math.random().toString(36).slice(2),
+          date:        (colMapping.date && row[colMapping.date]) ? String(row[colMapping.date]).trim() : today,
+          customerName:'Walk-in',
+          category:    (colMapping.category && row[colMapping.category]) ? String(row[colMapping.category]).trim() : 'Other',
+          lineItems:   [{ itemName: String(row[colMapping.itemName] ?? '').trim() || 'Item', quantity: qty, unitPrice: unitPri, gstRate: 0 }],
+          totalAmount: totalAmt,
+          taxAmount:   taxAmt,
+          paymentMode: normalisePaymentMode((colMapping.paymentMode && row[colMapping.paymentMode]) || ''),
+          notes:       '',
         };
-      }),
-    );
+      });
+    setRowsAndSelect(mapped);
+    setStep('preview');
   }
 
-  async function doExtract(parts) {
-    setExtracting(true);
-    setExtractErr('');
-    setRows([]);
-    try {
-      const today = new Date().toISOString().slice(0, 10);
-      const raw = await geminiExtract(parts, setRetryMsg);
-      console.log('EXACT RAW RESPONSE:', JSON.stringify(raw));
-      const match = raw.match(/\[[\s\S]*\]/);
-      if (!match) throw new Error('AI could not read this file format. Please check the file and try again.');
-      let arr;
-      try { arr = JSON.parse(match[0]); }
-      catch { throw new Error('AI could not read this file format. Please check the file and try again.'); }
-      if (!Array.isArray(arr)) throw new Error('AI could not read this file format. Please check the file and try again.');
-      setRowsAndSelect(normaliseRows(arr, today));
-    } catch (e) {
-      setExtractErr(e.message ?? 'Extraction failed.');
-    } finally {
-      setExtracting(false);
-      setRetryMsg('');
-    }
-  }
-
-  async function handleExtractFile() {
+  async function handleExtract() {
     if (!file) return;
+    const isPdf   = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+    const isExcel = /\.(xlsx|xls)$/i.test(file.name) ||
+      file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+      file.type === 'application/vnd.ms-excel';
+    const isCsv   = /\.(csv|txt)$/i.test(file.name) || file.type.startsWith('text/');
 
-    const isPdf     = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
-    const isCsvText = /\.(csv|txt)$/i.test(file.name) || file.type.startsWith('text/');
+    setExtractErr('');
 
-    // ── PDF path: Gemini File API ─────────────────────────────────────────────
+    // ── PDF: upload via File API, then generateContent ────────────────────────
     if (isPdf) {
       setExtracting(true);
-      setExtractErr('');
-      setRows([]);
       try {
-        const items = await importPDFSales(file, setPdfProgress);
-        const today = new Date().toISOString().slice(0, 10);
-        const pending = items.map((item) => {
-          const qty        = Number(item.quantity)   || 1;
-          const grossSales = Number(item.grossSales) || 0;
-          const tax        = Number(item.tax)        || 0;
-          const myAmount   = Number(item.myAmount)   || 0;
-          const total      = grossSales || myAmount;
-          const subtotal   = Math.max(total - tax, 0);
-          const unitPrice  = qty > 0 ? subtotal / qty : myAmount;
-          const gstRate    = subtotal > 0 ? (tax / subtotal) * 100 : 0;
+        setProgress('Step 1/3: Uploading PDF to Gemini…');
+        const fileUri = await uploadPdfToGemini(file);
+
+        setProgress('Step 2/3: Waiting for file to be processed…');
+        await new Promise((r) => setTimeout(r, 4000));
+
+        setProgress('Step 3/3: AI extracting table data…');
+        const raw = await geminiGenerateContent([
+          { text: 'Extract all data rows from this sales report table. Skip Total/Min/Max/Avg/header rows. Return JSON array only with fields: itemName, category, quantity, unitPrice, totalAmount, taxAmount. Numbers must be numbers not strings. No markdown, no code blocks, just raw JSON.' },
+          { fileData: { mimeType: 'application/pdf', fileUri } },
+        ]);
+
+        const match = raw.match(/\[[\s\S]*\]/);
+        if (!match) throw new Error('AI could not extract table data from this PDF.');
+        let arr;
+        try { arr = JSON.parse(match[0]); } catch { throw new Error('AI returned invalid JSON.'); }
+        if (!Array.isArray(arr) || !arr.length) throw new Error('No data rows found in this PDF.');
+
+        const parsed = arr.map((item) => {
+          const qty      = Number(item.quantity)    || 1;
+          const unitPri  = Number(item.unitPrice)   || 0;
+          const totalAmt = Number(item.totalAmount) || (qty * unitPri);
+          const taxAmt   = Number(item.taxAmount)   || 0;
           return {
-            id:           Math.random().toString(36).slice(2),
-            date:         today,
-            customerName: 'Walk-in',
-            lineItems:    [{ itemName: String(item.itemName ?? '').trim() || 'Item', quantity: qty, unitPrice, gstRate }],
-            paymentMode:  'Cash',
-            notes:        item.category || '',
+            id:          Math.random().toString(36).slice(2),
+            date:        today,
+            customerName:'Walk-in',
+            category:    String(item.category ?? 'Other').trim() || 'Other',
+            lineItems:   [{ itemName: String(item.itemName ?? '').trim() || 'Item', quantity: qty, unitPrice: unitPri, gstRate: 0 }],
+            totalAmount: totalAmt,
+            taxAmount:   taxAmt,
+            paymentMode: 'Cash',
+            notes:       '',
           };
         });
-        await new Promise((r) => setTimeout(r, 700));
-        setPendingRows(pending);
-        setPdfRangeFrom('');
-        setPdfDetected('');
-        setImportDate(today);
-        setPdfDateStep(true);
+
+        setProgress(`Done! ${parsed.length} items found.`);
+        await new Promise((r) => setTimeout(r, 600));
+        setRowsAndSelect(parsed);
+        setStep('preview');
       } catch (e) {
-        setExtractErr(e.message);
+        setExtractErr(e.message ?? 'PDF extraction failed.');
       } finally {
         setExtracting(false);
-        setPdfProgress('');
-        setRetryMsg('');
+        setProgress('');
       }
       return;
     }
 
-    // ── Excel path (.xlsx / .xls) ─────────────────────────────────────────────
-    const isExcel = /\.(xlsx|xls)$/i.test(file.name) ||
-      file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-      file.type === 'application/vnd.ms-excel';
-
+    // ── Excel: parse locally, always show mapping step ────────────────────────
     if (isExcel) {
       setExtracting(true);
-      setExtractErr('');
-      setRows([]);
       try {
-        const ab      = await file.arrayBuffer();
-        const wb      = XLSX.read(ab, { type: 'array' });
-        const ws      = wb.Sheets[wb.SheetNames[0]];
-        const data    = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        const ab   = await file.arrayBuffer();
+        const wb   = XLSX.read(ab, { type: 'array' });
+        const ws   = wb.Sheets[wb.SheetNames[0]];
+        const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
         if (!data.length) throw new Error('Excel file appears to be empty.');
         const headers = Object.keys(data[0]);
-        const detected = autoMap(headers);
         setCsvHeaders(headers);
         setCsvRawRows(data);
-        setColMapping({ itemName: '', category: '', quantity: '', totalAmount: '', taxAmount: '', unitPrice: '', date: '', paymentMode: '', ...detected });
-        setShowColMapper(true);
+        setColMapping(guessMapping(headers));
+        setStep('mapping');
       } catch (e) {
         setExtractErr(e.message ?? 'Excel parsing failed.');
       } finally {
@@ -406,82 +303,32 @@ function ImportModal({ open, onClose, companyId, onImported }) {
       return;
     }
 
-    // ── Image path (JPG, PNG, WebP) ───────────────────────────────────────────
-    if (!isCsvText) {
-      const base64 = await toBase64(file);
-      const today  = new Date().toISOString().slice(0, 10);
-      const mime   = file.type || 'application/octet-stream';
-      console.log('Data being sent to Gemini:', `[base64 ${mime} ${(base64.length * 0.75 / 1024).toFixed(1)} KB]`);
-      await doExtract([{ text: buildPrompt(today) }, { inlineData: { mimeType: mime, data: base64 } }]);
+    // ── CSV: parse locally, always show mapping step ──────────────────────────
+    if (isCsv) {
+      setExtracting(true);
+      try {
+        const content = await file.text();
+        const parsed  = Papa.parse(content, { header: true, skipEmptyLines: true });
+        if (!parsed.data.length) throw new Error('CSV file appears to be empty.');
+        const headers = Object.keys(parsed.data[0]);
+        setCsvHeaders(headers);
+        setCsvRawRows(parsed.data);
+        setColMapping(guessMapping(headers));
+        setStep('mapping');
+      } catch (e) {
+        setExtractErr(e.message ?? 'CSV parsing failed.');
+      } finally {
+        setExtracting(false);
+      }
       return;
     }
 
-    // ── CSV path: parse locally, always show mapper with auto-detected values ──
-    const content = await file.text();
-    const parsed  = Papa.parse(content, { header: true, skipEmptyLines: true });
-    if (!parsed.data.length) { setExtractErr('CSV file appears to be empty.'); return; }
-
-    const headers  = Object.keys(parsed.data[0]);
-    const detected = autoMap(headers);
-
-    setExtracting(true);
-    setExtractErr('');
-    setRows([]);
-    setCsvHeaders(headers);
-    setCsvRawRows(parsed.data);
-    setColMapping({ itemName: '', category: '', quantity: '', totalAmount: '', taxAmount: '', unitPrice: '', date: '', paymentMode: '', ...detected });
-    setShowColMapper(true);
-    setExtracting(false);
-  }
-
-  function applyColumnMapping() {
-    if (!colMapping.itemName) return;
-    const today = new Date().toISOString().slice(0, 10);
-    const mapped = csvRawRows
-      .filter((row) => row[colMapping.itemName])
-      .map((row) => {
-        const qty       = Number(row[colMapping.quantity])    || 1;
-        const rawPrice  = Number(row[colMapping.unitPrice])   || 0;
-        const totalAmt  = Number(row[colMapping.totalAmount]) || 0;
-        const taxAmt    = Number(row[colMapping.taxAmount])   || 0;
-        const subtotal  = totalAmt ? Math.max(totalAmt - taxAmt, 0) : 0;
-        const unitPrice = rawPrice || (subtotal > 0 ? subtotal / qty : totalAmt / Math.max(qty, 1));
-        const gstRate   = subtotal > 0 && taxAmt > 0 ? (taxAmt / subtotal) * 100 : 0;
-        const category  = (colMapping.category && String(row[colMapping.category] ?? '').trim()) || '';
-        return {
-          id:           Math.random().toString(36).slice(2),
-          date:         (colMapping.date && row[colMapping.date]) || today,
-          customerName: 'Walk-in',
-          lineItems:    [{ itemName: String(row[colMapping.itemName] ?? '').trim() || 'Item', quantity: qty, unitPrice, gstRate }],
-          paymentMode:  normalisePaymentMode((colMapping.paymentMode && row[colMapping.paymentMode]) || ''),
-          notes:        category,
-        };
-      });
-    setRowsAndSelect(mapped);
-    setShowColMapper(false);
-    setCsvRawRows([]);
-    setCsvHeaders([]);
-  }
-
-  function confirmPdfDate() {
-    const date = importDate || new Date().toISOString().slice(0, 10);
-    setReportDateFrom(pdfRangeFrom || date);
-    setReportDateTo(date);
-    setRowsAndSelect(pendingRows.map((r) => ({ ...r, date })));
-    setPdfDateStep(false);
-    setPendingRows([]);
-  }
-
-  async function handleExtractPaste() {
-    if (!paste.trim()) return;
-    const today = new Date().toISOString().slice(0, 10);
-    console.log('Data being sent to Gemini:', paste.substring(0, 500));
-    await doExtract([{ text: buildPrompt(today) + '\n\n' + paste }]);
+    setExtractErr('Unsupported file type. Please use PDF, CSV, or Excel.');
   }
 
   async function handleSaveAll() {
     const toSave = rows.filter((r) => selectedRowIds.has(r.id));
-    if (toSave.length === 0) return;
+    if (!toSave.length) return;
     setSaving(true);
     setSaveErr('');
     let saved = 0;
@@ -503,7 +350,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
           discountType:  'flat',
           discountValue: '0',
           paymentMode:   row.paymentMode || 'Cash',
-          date:          row.date || new Date().toISOString().slice(0, 10),
+          date:          row.date || today,
           dueDate:       null,
           notes:         row.notes || '',
           tableNumber:   null,
@@ -512,21 +359,18 @@ function ImportModal({ open, onClose, companyId, onImported }) {
         });
         saved++;
         for (const l of row.lineItems) {
-          const qty         = Number(l.quantity)  || 0;
-          const unitPrice   = Number(l.unitPrice) || 0;
-          const gstRate     = Number(l.gstRate)   || 0;
-          const totalAmount = qty * unitPrice;
+          const qty      = Number(l.quantity)  || 0;
+          const unitPri  = Number(l.unitPrice) || 0;
+          const gstRate  = Number(l.gstRate)   || 0;
           salesItemBatch.push({
-            itemName:       String(l.itemName ?? '').trim(),
-            category:       row.notes || 'Other',
-            quantity:       qty,
-            unitPrice,
-            totalAmount,
-            GSTAmount:      totalAmount * gstRate / 100,
-            date:           dateToTs(row.date),
-            source:         'imported',
-            reportDateFrom: dateToTs(reportDateFrom || row.date),
-            reportDateTo:   dateToTs(reportDateTo   || row.date),
+            itemName:    String(l.itemName ?? '').trim(),
+            category:    row.category || 'Other',
+            quantity:    qty,
+            unitPrice:   unitPri,
+            totalAmount: row.totalAmount || (qty * unitPri),
+            GSTAmount:   row.taxAmount   || (qty * unitPri * gstRate / 100),
+            saleDate:    dateToTs(row.date),
+            source:      'imported',
           });
         }
       } catch (e) {
@@ -542,22 +386,13 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     setSaving(false);
     if (saved > 0) {
       setSavedCount(saved);
-      setRows([]);
-      setSelectedRowIds(new Set());
+      setStep('done');
       onImported();
     }
-    if (errs.length) setSaveErr(`${errs.length} failed: ${errs.slice(0, 2).join('; ')}`);
+    if (errs.length) setSaveErr(`${errs.length} row(s) failed: ${errs.slice(0, 2).join('; ')}`);
   }
 
   if (!open) return null;
-
-  const allSelected   = rows.length > 0 && rows.every((r) => selectedRowIds.has(r.id));
-  const selectedCount = rows.filter((r) => selectedRowIds.has(r.id)).length;
-  const selectedRows  = rows.filter((r) => selectedRowIds.has(r.id));
-  const totalSales    = selectedRows.reduce((s, r) => s + r.lineItems.reduce((a, l) => a + l.quantity * l.unitPrice, 0), 0);
-  const totalGST      = selectedRows.reduce((s, r) => s + r.lineItems.reduce((a, l) => a + l.quantity * l.unitPrice * (l.gstRate / 100), 0), 0);
-  const progressStep  = pdfProgress.includes('Step 3') || pdfProgress.includes('Done') ? 3
-    : pdfProgress.includes('Step 2') ? 2 : 1;
 
   const EMERALD = 'oklch(0.55 0.18 155)';
   const iStyle  = (extra = {}) => ({
@@ -567,6 +402,13 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     colorScheme: 'dark',
     ...extra,
   });
+  const allSelected   = rows.length > 0 && rows.every((r) => selectedRowIds.has(r.id));
+  const selectedCount = rows.filter((r) => selectedRowIds.has(r.id)).length;
+  const selectedRows  = rows.filter((r) => selectedRowIds.has(r.id));
+  const totalSales    = selectedRows.reduce((s, r) => s + (r.totalAmount || r.lineItems.reduce((a, l) => a + l.quantity * l.unitPrice, 0)), 0);
+  const totalGST      = selectedRows.reduce((s, r) => s + (r.taxAmount || 0), 0);
+  const progressStep  = progress.includes('Step 3') || progress.includes('Done') ? 3
+    : progress.includes('Step 2') ? 2 : 1;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -582,11 +424,14 @@ function ImportModal({ open, onClose, companyId, onImported }) {
               Import Sales Report
             </h2>
             <p className="mt-0.5 text-xs" style={{ color: 'var(--db-text-3)' }}>
-              PDF · CSV · Excel · Image
+              {step === 'upload'  && 'PDF · CSV · Excel'}
+              {step === 'mapping' && 'Map columns to fields'}
+              {step === 'preview' && `${rows.length} rows extracted — review & import`}
+              {step === 'done'    && 'Import complete'}
             </p>
           </div>
           <button type="button" onClick={onClose}
-            className="flex h-8 w-8 flex-none items-center justify-center rounded-full transition"
+            className="flex h-8 w-8 items-center justify-center rounded-full"
             style={{ color: 'var(--db-text-3)' }}>
             <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
               <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -595,107 +440,167 @@ function ImportModal({ open, onClose, companyId, onImported }) {
         </div>
 
         {/* Body */}
-        <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
 
-          {savedCount !== null && (
-            <div className="flex items-center gap-2.5 rounded-xl px-4 py-3 text-sm font-medium"
-              style={{ background: 'var(--db-green-dim)', border: '1px solid var(--db-green)', color: 'var(--db-green)' }}>
-              <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 flex-none">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-              </svg>
-              {savedCount} {savedCount === 1 ? 'sale' : 'sales'} imported successfully!
+          {/* ── UPLOAD step ── */}
+          {step === 'upload' && (
+            <div className="space-y-4">
+              <div
+                className="cursor-pointer rounded-2xl px-6 py-12 text-center transition"
+                style={{
+                  border:     '2px dashed var(--db-border)',
+                  background: file ? 'var(--db-card)' : 'var(--db-card-inset)',
+                }}
+                onClick={() => fileRef.current?.click()}
+                onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.borderColor = EMERALD; }}
+                onDragLeave={(e) => { e.currentTarget.style.borderColor = 'var(--db-border)'; }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.currentTarget.style.borderColor = 'var(--db-border)';
+                  const f = e.dataTransfer.files[0];
+                  if (f) { setFile(f); setExtractErr(''); }
+                }}
+              >
+                <input ref={fileRef} type="file" className="hidden"
+                  accept=".csv,.txt,.pdf,.xlsx,.xls"
+                  onChange={(e) => { setFile(e.target.files[0] ?? null); setExtractErr(''); }} />
+
+                {file ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-xl"
+                      style={{ background: 'var(--db-green-dim)', color: 'var(--db-green)' }}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                      </svg>
+                    </div>
+                    <p className="text-sm font-semibold" style={{ color: 'var(--db-text)' }}>{file.name}</p>
+                    <p className="text-xs" style={{ color: 'var(--db-text-3)' }}>{(file.size / 1024).toFixed(1)} KB</p>
+                    <button type="button" className="mt-0.5 text-xs underline"
+                      style={{ color: 'var(--db-text-3)' }}
+                      onClick={(e) => { e.stopPropagation(); setFile(null); }}>
+                      Remove
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-xl"
+                      style={{ background: 'var(--db-border)', color: 'var(--db-text-2)' }}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
+                        <polyline points="16 16 12 12 8 16"/>
+                        <line x1="12" y1="12" x2="12" y2="21"/>
+                        <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium" style={{ color: 'var(--db-text-2)' }}>
+                        Drop a file here or click to browse
+                      </p>
+                      <p className="mt-0.5 text-xs" style={{ color: 'var(--db-text-3)' }}>PDF · CSV · Excel</p>
+                    </div>
+                    <div className="flex gap-2">
+                      {[
+                        { label: 'PDF', color: 'var(--db-red)',   bg: 'var(--db-red-dim)'   },
+                        { label: 'CSV', color: 'var(--db-green)', bg: 'var(--db-green-dim)' },
+                        { label: 'XLS', color: 'var(--db-blue)',  bg: 'var(--db-blue-dim)'  },
+                      ].map(({ label, color, bg }) => (
+                        <span key={label} className="rounded px-2 py-0.5 text-[10px] font-bold tracking-wide"
+                          style={{ background: bg, color }}>{label}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* PDF step progress */}
+              {extracting && (
+                <div className="rounded-xl p-4 space-y-3"
+                  style={{ background: 'var(--db-card)', border: '1px solid var(--db-border-subtle)' }}>
+                  <div className="flex items-center gap-2">
+                    {[1, 2, 3].map((s) => {
+                      const done    = progressStep > s;
+                      const current = progressStep === s;
+                      return (
+                        <div key={s} className="flex items-center gap-2">
+                          <div className="flex h-7 w-7 flex-none items-center justify-center rounded-full text-xs font-bold"
+                            style={{
+                              background: done ? 'var(--db-green)' : current ? EMERALD : 'var(--db-border)',
+                              color: done || current ? 'white' : 'var(--db-text-3)',
+                            }}>
+                            {done ? '✓' : s}
+                          </div>
+                          {s < 3 && (
+                            <div className="h-px w-6 rounded"
+                              style={{ background: done ? 'var(--db-green)' : 'var(--db-border)' }} />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs" style={{ color: 'var(--db-text-2)' }}>{progress || 'Processing…'}</p>
+                </div>
+              )}
+
+              {extractErr && (
+                <div className="rounded-xl px-4 py-3 text-sm"
+                  style={{ background: 'var(--db-red-dim)', border: '1px solid var(--db-red)', color: 'var(--db-red)' }}>
+                  {extractErr}
+                </div>
+              )}
+
+              {!extracting && (
+                <button type="button" onClick={handleExtract} disabled={!file}
+                  className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition disabled:opacity-40"
+                  style={{ background: EMERALD, color: 'white' }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                  </svg>
+                  {/\.pdf$/i.test(file?.name ?? '') || file?.type === 'application/pdf'
+                    ? 'Extract with AI' : 'Parse File'}
+                </button>
+              )}
             </div>
           )}
 
-          {/* PDF date confirmation */}
-          {pdfDateStep && (
-            <div className="space-y-4">
+          {/* ── MAPPING step (CSV / Excel) ── */}
+          {step === 'mapping' && (
+            <div className="space-y-5">
               <div className="rounded-xl px-4 py-3"
-                style={{ background: 'var(--db-blue-dim)', border: '1px solid var(--db-blue)' }}>
-                {pdfDetected ? (
-                  <p className="text-sm font-semibold" style={{ color: 'var(--db-blue)' }}>
-                    Report covers: <span className="font-bold">{pdfDetected}</span>
-                  </p>
-                ) : (
-                  <p className="text-sm font-semibold" style={{ color: 'var(--db-blue)' }}>
-                    No date range detected in the report.
-                  </p>
-                )}
-                <p className="mt-1 text-xs" style={{ color: 'var(--db-text-2)' }}>
-                  {pendingRows.length} items extracted — confirm the import date. You can adjust per row after.
+                style={{ background: 'var(--db-card)', border: '1px solid var(--db-border-subtle)' }}>
+                <p className="text-sm font-semibold" style={{ color: 'var(--db-text)' }}>Map your columns</p>
+                <p className="mt-0.5 text-xs" style={{ color: 'var(--db-text-3)' }}>
+                  {csvRawRows.length} rows · {csvHeaders.length} columns detected.
+                  Green shows auto-detected mappings — override via dropdown.
                 </p>
               </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-medium" style={{ color: 'var(--db-text-2)' }}>
-                  Import date
-                </label>
-                <input type="date" value={importDate} onChange={(e) => setImportDate(e.target.value)}
-                  className="rounded-lg px-3 py-2 text-sm outline-none"
-                  style={iStyle()} />
-              </div>
-              <div className="flex gap-3">
-                <button type="button" onClick={confirmPdfDate} disabled={!importDate}
-                  className="rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-40"
-                  style={{ background: EMERALD, color: 'white' }}>
-                  Preview {pendingRows.length} Items
-                </button>
-                <button type="button" onClick={() => { setPdfDateStep(false); setPendingRows([]); }}
-                  className="rounded-xl px-4 py-2 text-sm transition"
-                  style={{ border: '1px solid var(--db-border)', color: 'var(--db-text-2)', background: 'transparent' }}>
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
 
-          {/* Column mapper */}
-          {showColMapper && rows.length === 0 && savedCount === null && (
-            <div className="space-y-4">
-              {/* Header banner */}
-              {(() => {
-                const autoDetected = autoMap(csvHeaders);
-                const detectedCount = Object.keys(autoDetected).length;
-                if (detectedCount === 0) return (
-                  <div className="rounded-xl px-4 py-3" style={{ background: 'var(--db-amber-dim)', border: '1px solid var(--db-amber)' }}>
-                    <p className="text-sm font-medium" style={{ color: 'var(--db-amber)' }}>Couldn't auto-detect columns — map them below.</p>
-                    <p className="mt-0.5 text-xs" style={{ color: 'var(--db-text-2)' }}>{csvRawRows.length} rows · {csvHeaders.length} columns</p>
-                  </div>
-                );
-                return (
-                  <div className="rounded-xl px-4 py-3" style={{ background: 'var(--db-green-dim)', border: '1px solid var(--db-green)' }}>
-                    <p className="text-sm font-medium" style={{ color: 'var(--db-green)' }}>
-                      ✓ Auto-detected {detectedCount} column{detectedCount > 1 ? 's' : ''} — review and confirm below.
-                    </p>
-                    <p className="mt-0.5 text-xs" style={{ color: 'var(--db-text-2)' }}>{csvRawRows.length} rows · {csvHeaders.length} columns</p>
-                  </div>
-                );
-              })()}
-
-              {/* Mapping grid */}
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { key: 'itemName',    label: 'Item Name *' },
-                  { key: 'category',    label: 'Category' },
-                  { key: 'quantity',    label: 'Quantity' },
-                  { key: 'unitPrice',   label: 'Unit Price' },
-                  { key: 'totalAmount', label: 'Total / Gross Sales' },
-                  { key: 'taxAmount',   label: 'Tax / GST' },
-                  { key: 'date',        label: 'Date' },
-                  { key: 'paymentMode', label: 'Payment Mode' },
-                ].map(({ key, label }) => {
-                  const isDetected = !!autoMap(csvHeaders)[key] && colMapping[key] === autoMap(csvHeaders)[key];
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {FIELD_DEFS.map(({ key, label, required }) => {
+                  const mapped   = colMapping[key] ?? '';
+                  const detected = !!mapped;
                   return (
-                    <div key={key}>
-                      <label className="mb-1 flex items-center gap-1.5 text-xs font-medium" style={{ color: 'var(--db-text-2)' }}>
-                        {label}
-                        {isDetected && <span style={{ color: 'var(--db-green)', fontSize: 10 }}>✓ auto</span>}
-                      </label>
+                    <div key={key} className="rounded-xl p-3"
+                      style={{
+                        background: 'var(--db-card)',
+                        border: `1px solid ${detected ? 'oklch(0.74 0.15 155 / 0.4)' : 'var(--db-border)'}`,
+                      }}>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className="text-xs font-semibold"
+                          style={{ color: detected ? 'var(--db-green)' : 'var(--db-text-2)' }}>
+                          {detected ? '✓ ' : ''}{label}{required ? ' *' : ''}
+                        </span>
+                        {detected && (
+                          <span className="max-w-[8rem] truncate rounded px-2 py-0.5 text-[10px] font-medium"
+                            style={{ background: 'var(--db-green-dim)', color: 'var(--db-green)' }}>
+                            {mapped}
+                          </span>
+                        )}
+                      </div>
                       <select
                         value={colMapping[key] ?? ''}
                         onChange={(e) => setColMapping((p) => ({ ...p, [key]: e.target.value }))}
-                        className="w-full rounded-lg px-2 py-1.5 text-sm outline-none"
-                        style={{ ...iStyle(), borderColor: isDetected ? 'var(--db-green)' : undefined }}
-                      >
+                        className="w-full rounded-lg px-2 py-1.5 text-xs outline-none"
+                        style={iStyle()}>
                         <option value="">— skip —</option>
                         {csvHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
                       </select>
@@ -705,216 +610,32 @@ function ImportModal({ open, onClose, companyId, onImported }) {
               </div>
 
               <div className="flex gap-3">
-                <button type="button" onClick={applyColumnMapping} disabled={!colMapping.itemName}
-                  className="rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-40"
+                <button type="button" onClick={applyMapping} disabled={!colMapping.itemName}
+                  className="rounded-xl px-5 py-2.5 text-sm font-semibold transition disabled:opacity-40"
                   style={{ background: EMERALD, color: 'white' }}>
-                  Import {csvRawRows.length} Rows
+                  Preview {csvRawRows.filter((r) => r[colMapping.itemName]).length} Rows
                 </button>
                 <button type="button"
-                  onClick={() => { setShowColMapper(false); setCsvHeaders([]); setCsvRawRows([]); setFile(null); }}
-                  className="rounded-xl px-4 py-2 text-sm transition"
+                  onClick={() => { setStep('upload'); setCsvHeaders([]); setCsvRawRows([]); }}
+                  className="rounded-xl px-4 py-2.5 text-sm transition"
                   style={{ border: '1px solid var(--db-border)', color: 'var(--db-text-2)', background: 'transparent' }}>
-                  Cancel
+                  Back
                 </button>
               </div>
             </div>
           )}
 
-          {/* Input tabs */}
-          {!showColMapper && !pdfDateStep && rows.length === 0 && savedCount === null && (
-            <>
-              {/* Tab switcher */}
-              <div className="flex gap-1 rounded-xl p-1" style={{ background: 'var(--db-card-inset)', width: 'fit-content' }}>
-                {['upload', 'paste'].map((t) => (
-                  <button key={t} type="button" onClick={() => setTab(t)}
-                    className="rounded-lg px-4 py-1.5 text-sm font-medium transition"
-                    style={{
-                      background:  tab === t ? 'var(--db-card)' : 'transparent',
-                      color:       tab === t ? 'var(--db-text)' : 'var(--db-text-3)',
-                      border:      tab === t ? '1px solid var(--db-border-subtle)' : '1px solid transparent',
-                    }}>
-                    {t === 'upload' ? 'Upload File' : 'Paste Text'}
-                  </button>
-                ))}
-              </div>
-
-              {tab === 'upload' ? (
-                <div className="space-y-4">
-                  {/* Drop zone */}
-                  <div
-                    className="cursor-pointer rounded-2xl px-6 py-12 text-center transition"
-                    style={{
-                      border:     '2px dashed var(--db-border)',
-                      background: file ? 'var(--db-card)' : 'var(--db-card-inset)',
-                    }}
-                    onClick={() => fileRef.current?.click()}
-                    onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.borderColor = EMERALD; }}
-                    onDragLeave={(e) => { e.currentTarget.style.borderColor = 'var(--db-border)'; }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      e.currentTarget.style.borderColor = 'var(--db-border)';
-                      const f = e.dataTransfer.files[0];
-                      if (f) setFile(f);
-                    }}
-                  >
-                    <input ref={fileRef} type="file" className="hidden"
-                      accept=".csv,.txt,.pdf,.jpg,.jpeg,.png,.webp,.xlsx,.xls"
-                      onChange={(e) => setFile(e.target.files[0] ?? null)} />
-
-                    {file ? (
-                      <div className="flex flex-col items-center gap-2">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-xl"
-                          style={{ background: 'var(--db-green-dim)', color: 'var(--db-green)' }}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
-                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                            <polyline points="14 2 14 8 20 8"/>
-                          </svg>
-                        </div>
-                        <p className="text-sm font-semibold" style={{ color: 'var(--db-text)' }}>{file.name}</p>
-                        <p className="text-xs" style={{ color: 'var(--db-text-3)' }}>{(file.size / 1024).toFixed(1)} KB</p>
-                        <button type="button"
-                          className="mt-0.5 text-xs underline"
-                          style={{ color: 'var(--db-text-3)' }}
-                          onClick={(e) => { e.stopPropagation(); setFile(null); }}>
-                          Remove
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-xl"
-                          style={{ background: 'var(--db-border)', color: 'var(--db-text-2)' }}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
-                            <polyline points="16 16 12 12 8 16"/>
-                            <line x1="12" y1="12" x2="12" y2="21"/>
-                            <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
-                          </svg>
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium" style={{ color: 'var(--db-text-2)' }}>
-                            Drop a file here or click to browse
-                          </p>
-                          <p className="mt-0.5 text-xs" style={{ color: 'var(--db-text-3)' }}>
-                            Supported formats
-                          </p>
-                        </div>
-                        <div className="flex flex-wrap items-center justify-center gap-2">
-                          {[
-                            { label: 'PDF', color: 'var(--db-red)',   bg: 'var(--db-red-dim)'   },
-                            { label: 'CSV', color: 'var(--db-green)', bg: 'var(--db-green-dim)' },
-                            { label: 'XLS', color: 'var(--db-blue)',  bg: 'var(--db-blue-dim)'  },
-                            { label: 'IMG', color: 'var(--db-amber)', bg: 'var(--db-amber-dim)' },
-                          ].map(({ label, color, bg }) => (
-                            <span key={label}
-                              className="rounded px-2 py-0.5 text-[10px] font-bold tracking-wide"
-                              style={{ background: bg, color }}>
-                              {label}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {extractErr && (
-                    <div className="rounded-xl px-4 py-3 text-sm"
-                      style={{ background: 'var(--db-red-dim)', border: '1px solid var(--db-red)', color: 'var(--db-red)' }}>
-                      {extractErr}
-                    </div>
-                  )}
-
-                  {/* Step progress (PDF extraction) */}
-                  {extracting && (
-                    <div className="rounded-xl p-4 space-y-3"
-                      style={{ background: 'var(--db-card)', border: '1px solid var(--db-border-subtle)' }}>
-                      <div className="flex items-center gap-2">
-                        {[1, 2, 3].map((step) => {
-                          const done    = progressStep > step;
-                          const current = progressStep === step;
-                          return (
-                            <div key={step} className="flex items-center gap-2">
-                              <div className="flex h-7 w-7 flex-none items-center justify-center rounded-full text-xs font-bold transition"
-                                style={{
-                                  background: done ? 'var(--db-green)' : current ? EMERALD : 'var(--db-border)',
-                                  color:      done || current ? 'white' : 'var(--db-text-3)',
-                                }}>
-                                {done ? '✓' : step}
-                              </div>
-                              {step < 3 && (
-                                <div className="h-px w-6 rounded"
-                                  style={{ background: done ? 'var(--db-green)' : 'var(--db-border)' }} />
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                      <p className="text-xs" style={{ color: 'var(--db-text-2)' }}>
-                        {pdfProgress || 'Processing…'}
-                      </p>
-                      {retryMsg && (
-                        <p className="text-xs font-medium" style={{ color: 'var(--db-amber)' }}>{retryMsg}</p>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Extract button */}
-                  {!extracting && (
-                    <button type="button" onClick={handleExtractFile}
-                      disabled={!file}
-                      className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition disabled:opacity-40"
-                      style={{ background: EMERALD, color: 'white' }}>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
-                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-                      </svg>
-                      Extract with AI
-                    </button>
-                  )}
-                  {retryMsg && !extracting && (
-                    <p className="text-xs font-medium" style={{ color: 'var(--db-amber)' }}>{retryMsg}</p>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <textarea rows={8}
-                    placeholder="Paste your sales report text here…"
-                    className="w-full resize-none rounded-xl px-4 py-3 text-sm outline-none"
-                    style={iStyle()}
-                    value={paste} onChange={(e) => setPaste(e.target.value)} />
-                  {extractErr && (
-                    <div className="rounded-xl px-4 py-3 text-sm"
-                      style={{ background: 'var(--db-red-dim)', border: '1px solid var(--db-red)', color: 'var(--db-red)' }}>
-                      {extractErr}
-                    </div>
-                  )}
-                  <button type="button" onClick={handleExtractPaste}
-                    disabled={!paste.trim() || extracting}
-                    className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition disabled:opacity-40"
-                    style={{ background: EMERALD, color: 'white' }}>
-                    {extracting && <LoadingSpinner size="sm" />}
-                    {extracting ? 'Extracting…' : 'Extract with AI'}
-                  </button>
-                  {retryMsg && (
-                    <p className="text-xs font-medium" style={{ color: 'var(--db-amber)' }}>{retryMsg}</p>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Preview table */}
-          {rows.length > 0 && (
+          {/* ── PREVIEW step ── */}
+          {step === 'preview' && rows.length > 0 && (
             <div className="space-y-4">
-              {/* Controls row */}
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <label className="flex cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 cursor-pointer accent-emerald-500"
+                  <input type="checkbox" className="h-4 w-4 cursor-pointer accent-emerald-500"
                     checked={allSelected}
                     onChange={(e) => {
                       if (e.target.checked) setSelectedRowIds(new Set(rows.map((r) => r.id)));
                       else setSelectedRowIds(new Set());
-                    }}
-                  />
+                    }} />
                   <span className="text-xs font-medium" style={{ color: 'var(--db-text-2)' }}>
                     {allSelected ? 'Deselect All' : 'Select All'}
                   </span>
@@ -923,22 +644,21 @@ function ImportModal({ open, onClose, companyId, onImported }) {
                   </span>
                 </label>
                 <button type="button"
-                  onClick={() => { setRows([]); setSelectedRowIds(new Set()); }}
-                  className="text-xs underline"
-                  style={{ color: 'var(--db-text-3)' }}>
+                  onClick={() => { setStep('upload'); setRows([]); setSelectedRowIds(new Set()); }}
+                  className="text-xs underline" style={{ color: 'var(--db-text-3)' }}>
                   Start over
                 </button>
               </div>
 
-              {/* Summary chips */}
+              {/* Summary bar */}
               <div className="flex flex-wrap gap-2">
                 <span className="rounded-lg px-3 py-1 text-xs font-medium"
                   style={{ background: 'var(--db-card)', border: '1px solid var(--db-border-subtle)', color: 'var(--db-text-2)' }}>
-                  {rows.length} items total
+                  {rows.length} items
                 </span>
                 <span className="rounded-lg px-3 py-1 text-xs font-semibold"
                   style={{ background: 'var(--db-green-dim)', color: 'var(--db-green)', fontFamily: 'var(--font-mono)' }}>
-                  {formatCurrency(totalSales)}
+                  {formatCurrency(totalSales)} total
                 </span>
                 {totalGST > 0 && (
                   <span className="rounded-lg px-3 py-1 text-xs font-semibold"
@@ -952,9 +672,8 @@ function ImportModal({ open, onClose, companyId, onImported }) {
                 </span>
               </div>
 
-              {/* Table */}
-              <div className="overflow-x-auto rounded-xl"
-                style={{ border: '1px solid var(--db-border-subtle)' }}>
+              {/* Preview table */}
+              <div className="overflow-x-auto rounded-xl" style={{ border: '1px solid var(--db-border-subtle)' }}>
                 <table className="w-full text-left text-xs">
                   <thead>
                     <tr style={{ background: 'var(--db-card-inset)', borderBottom: '1px solid var(--db-border-subtle)' }}>
@@ -967,7 +686,8 @@ function ImportModal({ open, onClose, companyId, onImported }) {
                           }} />
                       </th>
                       {['Date', 'Item', 'Qty', 'Unit Price', 'Total', 'Payment', ''].map((h, i) => (
-                        <th key={i} className={`px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider${i >= 2 && i <= 4 ? ' text-right' : ''}`}
+                        <th key={i}
+                          className={`px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider${i >= 2 && i <= 4 ? ' text-right' : ''}`}
                           style={{ color: 'var(--db-text-3)' }}>
                           {h}
                         </th>
@@ -977,7 +697,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
                   <tbody>
                     {rows.map((row, idx) => {
                       const li    = row.lineItems[0] ?? { itemName: '—', quantity: 1, unitPrice: 0, gstRate: 0 };
-                      const total = row.lineItems.reduce((s, l) => s + l.quantity * l.unitPrice * (1 + l.gstRate / 100), 0);
+                      const total = row.totalAmount || (li.quantity * li.unitPrice);
                       const sel   = selectedRowIds.has(row.id);
                       return (
                         <tr key={row.id}
@@ -1038,7 +758,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
                                 setRows((p) => p.filter((r) => r.id !== row.id));
                                 setSelectedRowIds((p) => { const n = new Set(p); n.delete(row.id); return n; });
                               }}
-                              className="flex h-5 w-5 items-center justify-center rounded text-base leading-none transition"
+                              className="flex h-5 w-5 items-center justify-center rounded text-base leading-none"
                               style={{ color: 'var(--db-text-3)' }}
                               title="Remove">×
                             </button>
@@ -1058,28 +778,37 @@ function ImportModal({ open, onClose, companyId, onImported }) {
               )}
             </div>
           )}
+
+          {/* ── DONE step ── */}
+          {step === 'done' && (
+            <div className="flex items-center gap-2.5 rounded-xl px-4 py-3 text-sm font-medium"
+              style={{ background: 'var(--db-green-dim)', border: '1px solid var(--db-green)', color: 'var(--db-green)' }}>
+              <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 flex-none">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+              {savedCount} {savedCount === 1 ? 'sale' : 'sales'} imported successfully!
+            </div>
+          )}
+
         </div>
 
         {/* Footer */}
-        <div className="flex flex-shrink-0 items-center justify-between gap-3 px-6 py-4"
+        <div className="flex flex-shrink-0 items-center justify-end gap-3 px-6 py-4"
           style={{ borderTop: '1px solid var(--db-border-subtle)' }}>
-          <div />
-          <div className="flex items-center gap-3">
-            <button type="button" onClick={onClose}
-              className="rounded-xl px-4 py-2 text-sm transition"
-              style={{ border: '1px solid var(--db-border)', color: 'var(--db-text-2)', background: 'transparent' }}>
-              {savedCount !== null ? 'Close' : 'Cancel'}
+          <button type="button" onClick={onClose}
+            className="rounded-xl px-4 py-2 text-sm transition"
+            style={{ border: '1px solid var(--db-border)', color: 'var(--db-text-2)', background: 'transparent' }}>
+            {step === 'done' ? 'Close' : 'Cancel'}
+          </button>
+          {step === 'preview' && rows.length > 0 && (
+            <button type="button" onClick={handleSaveAll}
+              disabled={saving || selectedCount === 0}
+              className="flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold transition disabled:opacity-40"
+              style={{ background: EMERALD, color: 'white' }}>
+              {saving && <LoadingSpinner size="sm" />}
+              {saving ? 'Saving…' : `Import Selected (${selectedCount})`}
             </button>
-            {rows.length > 0 && (
-              <button type="button" onClick={handleSaveAll}
-                disabled={saving || selectedCount === 0}
-                className="flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold transition disabled:opacity-40"
-                style={{ background: EMERALD, color: 'white' }}>
-                {saving && <LoadingSpinner size="sm" />}
-                {saving ? 'Saving…' : `Import Selected (${selectedCount})`}
-              </button>
-            )}
-          </div>
+          )}
         </div>
       </div>
     </div>
