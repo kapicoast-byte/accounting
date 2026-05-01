@@ -1,4 +1,13 @@
-import { RefreshCw } from 'lucide-react';
+function RefreshCw({ size = 14, className = '' }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round"
+      style={{ width: size, height: size, display: 'inline-block', verticalAlign: 'middle' }}
+      className={className}>
+      <path d="M3 12a9 9 0 109-9M3 3v6h6" />
+    </svg>
+  );
+}
 import { useApp } from '../context/AppContext';
 import { useDashboard } from '../hooks/useDashboard';
 import { BUSINESS_TYPES } from '../services/companyService';
