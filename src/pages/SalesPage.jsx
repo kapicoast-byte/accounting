@@ -7,7 +7,7 @@ import { useApp } from '../context/AppContext';
 import { useRole } from '../hooks/useRole';
 import { listSales, createSale, SALE_STATUS, PAYMENT_MODES } from '../services/saleService';
 import { writeSalesItems } from '../services/salesItemService';
-import { uploadPdfToGemini } from '../services/saleImportService';
+import { extractTextFromPDF, parsePdfRows } from '../services/saleImportService';
 import { BUSINESS_TYPES } from '../services/companyService';
 import { startOfDay, endOfDay, toJsDate } from '../utils/dateUtils';
 import { formatCurrency } from '../utils/format';
@@ -71,52 +71,53 @@ function fmtDate(ts) {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-async function geminiGenerateContent(parts, retries = 3) {
+// Sends headers + 2 sample rows (~100–200 tokens) to Gemini — returns column mapping JSON
+async function geminiMapColumns(sample) {
   const key = import.meta.env.VITE_GEMINI_API_KEY;
-  if (!key) throw new Error('Gemini API key not configured (VITE_GEMINI_API_KEY).');
-  for (let attempt = 0; attempt < retries; attempt++) {
+  if (!key) return {};
+  const prompt = `Restaurant sales report headers and 2 sample rows:\n${sample}\n\nReturn ONLY this JSON with no extra text:\n{"itemName":"?","category":"?","quantity":"?","unitPrice":"?","totalAmount":"?","taxAmount":"?"}\nReplace ? with the matching header name or null.`;
+  try {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts }] }),
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
       },
     );
-    if (res.ok) {
-      const data = await res.json();
-      return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-    }
-    const errBody = await res.json().catch(() => ({}));
-    const msg   = errBody?.error?.message ?? `Gemini error ${res.status}`;
-    const is429 = res.status === 429 || msg.includes('Resource exhausted');
-    if (!is429 || attempt >= retries - 1) throw new Error(msg);
-    await new Promise((r) => setTimeout(r, 8000 * (attempt + 1)));
+    if (!res.ok) return {};
+    const data = await res.json();
+    const raw  = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+    const m    = raw.match(/\{[\s\S]*?\}/);
+    if (!m) return {};
+    return JSON.parse(m[0]);
+  } catch {
+    return {};
   }
 }
 
-function guessMapping(headers) {
-  const lower = headers.map((h) => String(h).toLowerCase().trim());
-  const find = (candidates) => {
-    for (const cand of candidates) {
-      const c = cand.toLowerCase();
-      let i = lower.findIndex((h) => h === c);
-      if (i !== -1) return headers[i];
-      i = lower.findIndex((h) => h.includes(c) || c.includes(h));
-      if (i !== -1) return headers[i];
-    }
-    return '';
-  };
-  return {
-    itemName:    find(['item_name', 'item', 'name', 'product', 'description']),
-    category:    find(['parent_category', 'category name', 'category', 'type']),
-    quantity:    find(['units sold', 'qty', 'quantity', 'units']),
-    unitPrice:   find(['unit_price', 'my amount', 'price', 'rate']),
-    totalAmount: find(['gross sales', 'gross_sales', 'total_amount', 'total', 'amount']),
-    taxAmount:   find(['tax_amount', 'tax amount', 'tax', 'gst']),
-    date:        find(['date', 'time', 'day']),
-    paymentMode: find(['payment', 'mode', 'method']),
-  };
+// Applies a mapping object to parsed CSV/Excel rows
+function applyMappingToRows(data, mapping, today) {
+  if (!mapping.itemName) return [];
+  return data
+    .filter((row) => row[mapping.itemName])
+    .map((row) => {
+      const qty      = Number(row[mapping.quantity])    || 1;
+      const unitPri  = Number(row[mapping.unitPrice])   || 0;
+      const totalAmt = Number(row[mapping.totalAmount]) || (qty * unitPri);
+      const taxAmt   = Number(row[mapping.taxAmount])   || 0;
+      return {
+        id:          Math.random().toString(36).slice(2),
+        date:        (mapping.date && row[mapping.date]) ? String(row[mapping.date]).trim() : today,
+        customerName:'Walk-in',
+        category:    (mapping.category && row[mapping.category]) ? String(row[mapping.category]).trim() : 'Other',
+        lineItems:   [{ itemName: String(row[mapping.itemName] ?? '').trim() || 'Item', quantity: qty, unitPrice: unitPri, gstRate: 0 }],
+        totalAmount: totalAmt,
+        taxAmount:   taxAmt,
+        paymentMode: 'Cash',
+        notes:       '',
+      };
+    });
 }
 
 function normalisePaymentMode(raw) {
@@ -133,28 +134,14 @@ function dateToTs(dateStr) {
   return isNaN(d.getTime()) ? Timestamp.now() : Timestamp.fromDate(d);
 }
 
-const FIELD_DEFS = [
-  { key: 'itemName',    label: 'Item Name',   required: true  },
-  { key: 'category',   label: 'Category',     required: false },
-  { key: 'quantity',   label: 'Quantity',     required: false },
-  { key: 'unitPrice',  label: 'Unit Price',   required: false },
-  { key: 'totalAmount',label: 'Total Amount', required: false },
-  { key: 'taxAmount',  label: 'Tax / GST',    required: false },
-  { key: 'date',       label: 'Date',         required: false },
-  { key: 'paymentMode',label: 'Payment Mode', required: false },
-];
-
 // ── Import Modal ───────────────────────────────────────────────────────────────
 
 function ImportModal({ open, onClose, companyId, onImported }) {
-  const [step,           setStep]           = useState('upload'); // upload | mapping | preview | done
+  const [step,           setStep]           = useState('upload'); // upload | preview | done
   const [file,           setFile]           = useState(null);
   const [extracting,     setExtracting]     = useState(false);
   const [extractErr,     setExtractErr]     = useState('');
   const [progress,       setProgress]       = useState('');
-  const [csvHeaders,     setCsvHeaders]     = useState([]);
-  const [csvRawRows,     setCsvRawRows]     = useState([]);
-  const [colMapping,     setColMapping]     = useState({});
   const [rows,           setRows]           = useState([]);
   const [selectedRowIds, setSelectedRowIds] = useState(new Set());
   const [saving,         setSaving]         = useState(false);
@@ -167,8 +154,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
   useEffect(() => {
     if (open) return;
     setStep('upload'); setFile(null); setExtracting(false); setExtractErr('');
-    setProgress(''); setCsvHeaders([]); setCsvRawRows([]); setColMapping({});
-    setRows([]); setSelectedRowIds(new Set());
+    setProgress(''); setRows([]); setSelectedRowIds(new Set());
     setSaving(false); setSaveErr(''); setSavedCount(null);
   }, [open]);
 
@@ -193,31 +179,6 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     }));
   }
 
-  function applyMapping() {
-    if (!colMapping.itemName) return;
-    const mapped = csvRawRows
-      .filter((row) => row[colMapping.itemName])
-      .map((row) => {
-        const qty      = Number(row[colMapping.quantity])    || 1;
-        const unitPri  = Number(row[colMapping.unitPrice])   || 0;
-        const totalAmt = Number(row[colMapping.totalAmount]) || (qty * unitPri);
-        const taxAmt   = Number(row[colMapping.taxAmount])   || 0;
-        return {
-          id:          Math.random().toString(36).slice(2),
-          date:        (colMapping.date && row[colMapping.date]) ? String(row[colMapping.date]).trim() : today,
-          customerName:'Walk-in',
-          category:    (colMapping.category && row[colMapping.category]) ? String(row[colMapping.category]).trim() : 'Other',
-          lineItems:   [{ itemName: String(row[colMapping.itemName] ?? '').trim() || 'Item', quantity: qty, unitPrice: unitPri, gstRate: 0 }],
-          totalAmount: totalAmt,
-          taxAmount:   taxAmt,
-          paymentMode: normalisePaymentMode((colMapping.paymentMode && row[colMapping.paymentMode]) || ''),
-          notes:       '',
-        };
-      });
-    setRowsAndSelect(mapped);
-    setStep('preview');
-  }
-
   async function handleExtract() {
     if (!file) return;
     const isPdf   = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
@@ -226,104 +187,71 @@ function ImportModal({ open, onClose, companyId, onImported }) {
       file.type === 'application/vnd.ms-excel';
     const isCsv   = /\.(csv|txt)$/i.test(file.name) || file.type.startsWith('text/');
 
+    setExtracting(true);
     setExtractErr('');
 
-    // ── PDF: upload via File API, then generateContent ────────────────────────
-    if (isPdf) {
-      setExtracting(true);
-      try {
-        setProgress('Step 1/3: Uploading PDF to Gemini…');
-        const fileUri = await uploadPdfToGemini(file);
+    try {
+      if (isPdf) {
+        setProgress('Extracting text from PDF…');
+        const fullText = await extractTextFromPDF(file);
+        if (!fullText.trim()) throw new Error('Could not extract text from this PDF. It may be a scanned image.');
 
-        setProgress('Step 2/3: Waiting for file to be processed…');
-        await new Promise((r) => setTimeout(r, 4000));
+        setProgress('AI mapping columns…');
+        const sample  = fullText.trim().slice(0, 500);
+        const mapping = await geminiMapColumns(sample);
 
-        setProgress('Step 3/3: AI extracting table data…');
-        const raw = await geminiGenerateContent([
-          { text: 'Extract all data rows from this sales report table. Skip Total/Min/Max/Avg/header rows. Return JSON array only with fields: itemName, category, quantity, unitPrice, totalAmount, taxAmount. Numbers must be numbers not strings. No markdown, no code blocks, just raw JSON.' },
-          { fileData: { mimeType: 'application/pdf', fileUri } },
-        ]);
+        setProgress('Parsing rows…');
+        const parsed = parsePdfRows(fullText, mapping);
+        if (!parsed.length) throw new Error('No data rows found in this PDF.');
 
-        const match = raw.match(/\[[\s\S]*\]/);
-        if (!match) throw new Error('AI could not extract table data from this PDF.');
-        let arr;
-        try { arr = JSON.parse(match[0]); } catch { throw new Error('AI returned invalid JSON.'); }
-        if (!Array.isArray(arr) || !arr.length) throw new Error('No data rows found in this PDF.');
-
-        const parsed = arr.map((item) => {
-          const qty      = Number(item.quantity)    || 1;
-          const unitPri  = Number(item.unitPrice)   || 0;
-          const totalAmt = Number(item.totalAmount) || (qty * unitPri);
-          const taxAmt   = Number(item.taxAmount)   || 0;
-          return {
-            id:          Math.random().toString(36).slice(2),
-            date:        today,
-            customerName:'Walk-in',
-            category:    String(item.category ?? 'Other').trim() || 'Other',
-            lineItems:   [{ itemName: String(item.itemName ?? '').trim() || 'Item', quantity: qty, unitPrice: unitPri, gstRate: 0 }],
-            totalAmount: totalAmt,
-            taxAmount:   taxAmt,
-            paymentMode: 'Cash',
-            notes:       '',
-          };
-        });
-
-        setProgress(`Done! ${parsed.length} items found.`);
-        await new Promise((r) => setTimeout(r, 600));
         setRowsAndSelect(parsed);
         setStep('preview');
-      } catch (e) {
-        setExtractErr(e.message ?? 'PDF extraction failed.');
-      } finally {
-        setExtracting(false);
-        setProgress('');
-      }
-      return;
-    }
 
-    // ── Excel: parse locally, always show mapping step ────────────────────────
-    if (isExcel) {
-      setExtracting(true);
-      try {
+      } else if (isExcel) {
+        setProgress('Parsing Excel…');
         const ab   = await file.arrayBuffer();
         const wb   = XLSX.read(ab, { type: 'array' });
         const ws   = wb.Sheets[wb.SheetNames[0]];
         const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
         if (!data.length) throw new Error('Excel file appears to be empty.');
-        const headers = Object.keys(data[0]);
-        setCsvHeaders(headers);
-        setCsvRawRows(data);
-        setColMapping(guessMapping(headers));
-        setStep('mapping');
-      } catch (e) {
-        setExtractErr(e.message ?? 'Excel parsing failed.');
-      } finally {
-        setExtracting(false);
-      }
-      return;
-    }
 
-    // ── CSV: parse locally, always show mapping step ──────────────────────────
-    if (isCsv) {
-      setExtracting(true);
-      try {
+        const headers = Object.keys(data[0]);
+        const sample  = `Headers: ${headers.join(', ')}\nRow1: ${Object.values(data[0]).join(', ')}\nRow2: ${Object.values(data[1] ?? data[0]).join(', ')}`;
+        setProgress('AI mapping columns…');
+        const mapping = await geminiMapColumns(sample);
+
+        const mapped = applyMappingToRows(data, mapping, today);
+        if (!mapped.length) throw new Error('Could not map columns. Ensure the file has an Item Name column.');
+
+        setRowsAndSelect(mapped);
+        setStep('preview');
+
+      } else if (isCsv) {
+        setProgress('Parsing CSV…');
         const content = await file.text();
         const parsed  = Papa.parse(content, { header: true, skipEmptyLines: true });
         if (!parsed.data.length) throw new Error('CSV file appears to be empty.');
-        const headers = Object.keys(parsed.data[0]);
-        setCsvHeaders(headers);
-        setCsvRawRows(parsed.data);
-        setColMapping(guessMapping(headers));
-        setStep('mapping');
-      } catch (e) {
-        setExtractErr(e.message ?? 'CSV parsing failed.');
-      } finally {
-        setExtracting(false);
-      }
-      return;
-    }
 
-    setExtractErr('Unsupported file type. Please use PDF, CSV, or Excel.');
+        const headers = Object.keys(parsed.data[0]);
+        const sample  = `Headers: ${headers.join(', ')}\nRow1: ${Object.values(parsed.data[0]).join(', ')}\nRow2: ${Object.values(parsed.data[1] ?? parsed.data[0]).join(', ')}`;
+        setProgress('AI mapping columns…');
+        const mapping = await geminiMapColumns(sample);
+
+        const mapped = applyMappingToRows(parsed.data, mapping, today);
+        if (!mapped.length) throw new Error('Could not map columns. Ensure the file has an Item Name column.');
+
+        setRowsAndSelect(mapped);
+        setStep('preview');
+
+      } else {
+        throw new Error('Unsupported file type. Please use PDF, CSV, or Excel.');
+      }
+    } catch (e) {
+      setExtractErr(e.message ?? 'Extraction failed.');
+    } finally {
+      setExtracting(false);
+      setProgress('');
+    }
   }
 
   async function handleSaveAll() {
@@ -359,9 +287,9 @@ function ImportModal({ open, onClose, companyId, onImported }) {
         });
         saved++;
         for (const l of row.lineItems) {
-          const qty      = Number(l.quantity)  || 0;
-          const unitPri  = Number(l.unitPrice) || 0;
-          const gstRate  = Number(l.gstRate)   || 0;
+          const qty     = Number(l.quantity)  || 0;
+          const unitPri = Number(l.unitPrice) || 0;
+          const gstRate = Number(l.gstRate)   || 0;
           salesItemBatch.push({
             itemName:    String(l.itemName ?? '').trim(),
             category:    row.category || 'Other',
@@ -407,8 +335,6 @@ function ImportModal({ open, onClose, companyId, onImported }) {
   const selectedRows  = rows.filter((r) => selectedRowIds.has(r.id));
   const totalSales    = selectedRows.reduce((s, r) => s + (r.totalAmount || r.lineItems.reduce((a, l) => a + l.quantity * l.unitPrice, 0)), 0);
   const totalGST      = selectedRows.reduce((s, r) => s + (r.taxAmount || 0), 0);
-  const progressStep  = progress.includes('Step 3') || progress.includes('Done') ? 3
-    : progress.includes('Step 2') ? 2 : 1;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -425,7 +351,6 @@ function ImportModal({ open, onClose, companyId, onImported }) {
             </h2>
             <p className="mt-0.5 text-xs" style={{ color: 'var(--db-text-3)' }}>
               {step === 'upload'  && 'PDF · CSV · Excel'}
-              {step === 'mapping' && 'Map columns to fields'}
               {step === 'preview' && `${rows.length} rows extracted — review & import`}
               {step === 'done'    && 'Import complete'}
             </p>
@@ -445,6 +370,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
           {/* ── UPLOAD step ── */}
           {step === 'upload' && (
             <div className="space-y-4">
+              {/* Drop zone */}
               <div
                 className="cursor-pointer rounded-2xl px-6 py-12 text-center transition"
                 style={{
@@ -512,31 +438,11 @@ function ImportModal({ open, onClose, companyId, onImported }) {
                 )}
               </div>
 
-              {/* PDF step progress */}
+              {/* Extraction progress */}
               {extracting && (
-                <div className="rounded-xl p-4 space-y-3"
+                <div className="flex items-center gap-3 rounded-xl px-4 py-3"
                   style={{ background: 'var(--db-card)', border: '1px solid var(--db-border-subtle)' }}>
-                  <div className="flex items-center gap-2">
-                    {[1, 2, 3].map((s) => {
-                      const done    = progressStep > s;
-                      const current = progressStep === s;
-                      return (
-                        <div key={s} className="flex items-center gap-2">
-                          <div className="flex h-7 w-7 flex-none items-center justify-center rounded-full text-xs font-bold"
-                            style={{
-                              background: done ? 'var(--db-green)' : current ? EMERALD : 'var(--db-border)',
-                              color: done || current ? 'white' : 'var(--db-text-3)',
-                            }}>
-                            {done ? '✓' : s}
-                          </div>
-                          {s < 3 && (
-                            <div className="h-px w-6 rounded"
-                              style={{ background: done ? 'var(--db-green)' : 'var(--db-border)' }} />
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <LoadingSpinner size="sm" />
                   <p className="text-xs" style={{ color: 'var(--db-text-2)' }}>{progress || 'Processing…'}</p>
                 </div>
               )}
@@ -555,79 +461,16 @@ function ImportModal({ open, onClose, companyId, onImported }) {
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
                     <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
                   </svg>
-                  {/\.pdf$/i.test(file?.name ?? '') || file?.type === 'application/pdf'
-                    ? 'Extract with AI' : 'Parse File'}
+                  Extract with AI
                 </button>
               )}
-            </div>
-          )}
-
-          {/* ── MAPPING step (CSV / Excel) ── */}
-          {step === 'mapping' && (
-            <div className="space-y-5">
-              <div className="rounded-xl px-4 py-3"
-                style={{ background: 'var(--db-card)', border: '1px solid var(--db-border-subtle)' }}>
-                <p className="text-sm font-semibold" style={{ color: 'var(--db-text)' }}>Map your columns</p>
-                <p className="mt-0.5 text-xs" style={{ color: 'var(--db-text-3)' }}>
-                  {csvRawRows.length} rows · {csvHeaders.length} columns detected.
-                  Green shows auto-detected mappings — override via dropdown.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {FIELD_DEFS.map(({ key, label, required }) => {
-                  const mapped   = colMapping[key] ?? '';
-                  const detected = !!mapped;
-                  return (
-                    <div key={key} className="rounded-xl p-3"
-                      style={{
-                        background: 'var(--db-card)',
-                        border: `1px solid ${detected ? 'oklch(0.74 0.15 155 / 0.4)' : 'var(--db-border)'}`,
-                      }}>
-                      <div className="flex items-center justify-between gap-2 mb-2">
-                        <span className="text-xs font-semibold"
-                          style={{ color: detected ? 'var(--db-green)' : 'var(--db-text-2)' }}>
-                          {detected ? '✓ ' : ''}{label}{required ? ' *' : ''}
-                        </span>
-                        {detected && (
-                          <span className="max-w-[8rem] truncate rounded px-2 py-0.5 text-[10px] font-medium"
-                            style={{ background: 'var(--db-green-dim)', color: 'var(--db-green)' }}>
-                            {mapped}
-                          </span>
-                        )}
-                      </div>
-                      <select
-                        value={colMapping[key] ?? ''}
-                        onChange={(e) => setColMapping((p) => ({ ...p, [key]: e.target.value }))}
-                        className="w-full rounded-lg px-2 py-1.5 text-xs outline-none"
-                        style={iStyle()}>
-                        <option value="">— skip —</option>
-                        {csvHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
-                      </select>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="flex gap-3">
-                <button type="button" onClick={applyMapping} disabled={!colMapping.itemName}
-                  className="rounded-xl px-5 py-2.5 text-sm font-semibold transition disabled:opacity-40"
-                  style={{ background: EMERALD, color: 'white' }}>
-                  Preview {csvRawRows.filter((r) => r[colMapping.itemName]).length} Rows
-                </button>
-                <button type="button"
-                  onClick={() => { setStep('upload'); setCsvHeaders([]); setCsvRawRows([]); }}
-                  className="rounded-xl px-4 py-2.5 text-sm transition"
-                  style={{ border: '1px solid var(--db-border)', color: 'var(--db-text-2)', background: 'transparent' }}>
-                  Back
-                </button>
-              </div>
             </div>
           )}
 
           {/* ── PREVIEW step ── */}
           {step === 'preview' && rows.length > 0 && (
             <div className="space-y-4">
+              {/* Controls */}
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <label className="flex cursor-pointer items-center gap-2">
                   <input type="checkbox" className="h-4 w-4 cursor-pointer accent-emerald-500"
@@ -1033,9 +876,7 @@ export default function SalesPage() {
           <div className="px-4 py-12 text-center">
             <p className="text-sm text-gray-400">
               {sales.length === 0
-                ? isImport
-                  ? 'No imported sales yet.'
-                  : 'No invoices yet.'
+                ? isImport ? 'No imported sales yet.' : 'No invoices yet.'
                 : 'No invoices match the filters.'}
             </p>
             {sales.length === 0 && isImport && (
@@ -1052,12 +893,8 @@ export default function SalesPage() {
                 <tr>
                   {isAdmin && (
                     <th className="w-8 px-3 py-2">
-                      <input
-                        type="checkbox"
-                        checked={allFilteredSelected}
-                        onChange={toggleSelectAll}
-                        className="h-3.5 w-3.5 cursor-pointer rounded border-gray-400 accent-red-600"
-                      />
+                      <input type="checkbox" checked={allFilteredSelected} onChange={toggleSelectAll}
+                        className="h-3.5 w-3.5 cursor-pointer rounded border-gray-400 accent-red-600" />
                     </th>
                   )}
                   <th className="px-4 py-2">Invoice #</th>
@@ -1077,12 +914,9 @@ export default function SalesPage() {
                   <tr key={sale.saleId} className={`hover:bg-gray-50 ${selectedIds.has(sale.saleId) ? 'bg-red-50' : ''}`}>
                     {isAdmin && (
                       <td className="px-3 py-2">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(sale.saleId)}
+                        <input type="checkbox" checked={selectedIds.has(sale.saleId)}
                           onChange={() => toggleSelect(sale.saleId)}
-                          className="h-3.5 w-3.5 cursor-pointer rounded border-gray-400 accent-red-600"
-                        />
+                          className="h-3.5 w-3.5 cursor-pointer rounded border-gray-400 accent-red-600" />
                       </td>
                     )}
                     <td className="px-4 py-2 font-mono text-xs text-gray-700">{sale.invoiceNumber}</td>
@@ -1115,12 +949,9 @@ export default function SalesPage() {
                           </button>
                         )}
                         {isAdmin && (
-                          <button
-                            type="button"
-                            onClick={() => setDeleteTarget(sale)}
+                          <button type="button" onClick={() => setDeleteTarget(sale)}
                             title="Delete record"
-                            className="flex items-center gap-1 rounded-md border border-red-200 bg-white px-2 py-1 text-red-600 hover:bg-red-50"
-                          >
+                            className="flex items-center gap-1 rounded-md border border-red-200 bg-white px-2 py-1 text-red-600 hover:bg-red-50">
                             <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
                               <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
                             </svg>

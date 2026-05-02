@@ -5,87 +5,106 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
+import * as pdfjsLib from 'pdfjs-dist';
 
-// ─── Gemini File API ───────────────────────────────────────────────────────────
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-const uploadPDFToGemini = async (file) => {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+// ─── PDF text extraction ───────────────────────────────────────────────────────
+
+export async function extractTextFromPDF(file) {
   const arrayBuffer = await file.arrayBuffer();
-  const uint8Array = new Uint8Array(arrayBuffer);
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let fullText = '';
 
-  const uploadRes = await fetch(
-    `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: {
-        'X-Goog-Upload-Command': 'start, upload, finalize',
-        'X-Goog-Upload-Header-Content-Type': 'application/pdf',
-        'X-Goog-Upload-Header-Content-Length': uint8Array.length,
-        'Content-Type': 'application/pdf',
-      },
-      body: uint8Array,
-    },
-  );
-  const uploadData = await uploadRes.json();
-  console.log('File upload response:', uploadData);
-  return uploadData.file?.uri;
-};
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page    = await pdf.getPage(pageNum);
+    const content = await page.getTextContent();
 
-const extractFromFileURI = async (fileUri) => {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-  await new Promise((r) => setTimeout(r, 3000));
+    // Group text items by y-coordinate to reconstruct table rows
+    const lineMap = new Map();
+    for (const item of content.items) {
+      const y = Math.round(item.transform[5]);
+      const x = item.transform[4];
+      if (!lineMap.has(y)) lineMap.set(y, []);
+      lineMap.get(y).push({ str: item.str.trim(), x });
+    }
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            {
-              file_data: {
-                mime_type: 'application/pdf',
-                file_uri: fileUri,
-              },
-            },
-            {
-              text: `This is a restaurant sales report PDF with a table.
-Extract ALL data rows. Skip rows containing: Total, Min, Max, Avg, or header words like Taxable/Restaurant/Category/Item.
-For each valid item row return JSON with:
-itemName, category, quantity, myAmount, tax, grossSales
-All number fields must be numbers not strings.
-Return ONLY a JSON array starting with [ no markdown no code blocks.`,
-            },
-          ],
-        }],
-      }),
-    },
-  );
-  const data = await res.json();
-  console.log('Gemini response:', data);
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  const match = text.match(/\[[\s\S]*\]/);
-  if (!match) throw new Error('AI could not extract data from PDF');
-  return JSON.parse(match[0]);
-};
+    const pageLines = [...lineMap.entries()]
+      .sort(([ya], [yb]) => yb - ya)
+      .map(([, items]) =>
+        items.sort((a, b) => a.x - b.x).map(it => it.str).filter(s => s).join('\t'),
+      )
+      .filter(l => l.trim());
 
-export const importPDFSales = async (file, onProgress) => {
-  try {
-    onProgress('Uploading PDF to Gemini...');
-    const fileUri = await uploadPDFToGemini(file);
-    if (!fileUri) throw new Error('File upload failed - check API key');
-
-    onProgress('AI is reading your sales report...');
-    const items = await extractFromFileURI(fileUri);
-
-    onProgress(`Done! Found ${items.length} items`);
-    return items;
-  } catch (err) {
-    console.error('PDF import error:', err);
-    throw err;
+    fullText += pageLines.join('\n') + '\n';
   }
-};
+
+  return fullText;
+}
+
+// ─── PDF row parser ────────────────────────────────────────────────────────────
+
+const SKIP_ROW = /^(total|grand\s+total|min\b|max\b|avg\b|average|subtotal|sub\s+total|summary)\b/i;
+
+function findColIdx(headerCols, name) {
+  if (!name) return -1;
+  const n = name.toLowerCase().trim();
+  let i = headerCols.findIndex(h => h.toLowerCase().trim() === n);
+  if (i !== -1) return i;
+  i = headerCols.findIndex(h => h.toLowerCase().includes(n));
+  if (i !== -1) return i;
+  i = headerCols.findIndex(h => {
+    const hh = h.toLowerCase().trim();
+    return hh.length > 2 && n.includes(hh);
+  });
+  return i;
+}
+
+export function parsePdfRows(fullText, mapping) {
+  const lines = fullText.split('\n').map(l => l.trim()).filter(l => l);
+  const itemHeader = (mapping.itemName || 'Item').toLowerCase();
+  const headerIdx  = lines.findIndex(l => l.toLowerCase().includes(itemHeader));
+  if (headerIdx === -1) return [];
+
+  const headerCols = lines[headerIdx].split('\t');
+  const idxMap = {};
+  for (const [field, colName] of Object.entries(mapping)) {
+    if (colName) idxMap[field] = findColIdx(headerCols, colName);
+  }
+  if (idxMap.itemName == null || idxMap.itemName === -1) return [];
+
+  const today  = new Date().toISOString().slice(0, 10);
+  const result = [];
+
+  for (const line of lines.slice(headerIdx + 1)) {
+    if (SKIP_ROW.test(line)) continue;
+    const cols     = line.split('\t');
+    const itemName = cols[idxMap.itemName]?.trim();
+    if (!itemName) continue;
+
+    const qty      = Number((cols[idxMap.quantity]    ?? '').replace(/[,\s]/g, '')) || 1;
+    const totalAmt = Number((cols[idxMap.totalAmount] ?? '').replace(/[,\s]/g, '')) || 0;
+    const taxAmt   = Number((cols[idxMap.taxAmount]   ?? '').replace(/[,\s]/g, '')) || 0;
+    const category = cols[idxMap.category]?.trim() || 'Other';
+    const unitPri  = Number((cols[idxMap.unitPrice]   ?? '').replace(/[,\s]/g, ''))
+      || (totalAmt > taxAmt ? (totalAmt - taxAmt) / Math.max(qty, 1) : totalAmt / Math.max(qty, 1));
+
+    result.push({
+      id:          Math.random().toString(36).slice(2),
+      date:        today,
+      customerName:'Walk-in',
+      category,
+      lineItems:   [{ itemName, quantity: qty, unitPrice: unitPri, gstRate: 0 }],
+      totalAmount: totalAmt,
+      taxAmount:   taxAmt,
+      paymentMode: 'Cash',
+      notes:       '',
+    });
+  }
+
+  return result;
+}
 
 // ─── Firestore helpers ─────────────────────────────────────────────────────────
 
@@ -112,39 +131,9 @@ function parseImportDate(str) {
     if (!isNaN(date.getTime())) return Timestamp.fromDate(date);
   }
   const isoDate = cleaned.match(/^\d{4}-\d{2}-\d{2}$/) ? cleaned + 'T12:00:00' : cleaned;
-  const date = new Date(isoDate);
+  const date    = new Date(isoDate);
   if (!isNaN(date.getTime())) return Timestamp.fromDate(date);
   return Timestamp.now();
-}
-
-// ─── Gemini File API upload ────────────────────────────────────────────────────
-
-export async function uploadPdfToGemini(file) {
-  const key = import.meta.env.VITE_GEMINI_API_KEY;
-  if (!key) throw new Error('Gemini API key not configured (VITE_GEMINI_API_KEY).');
-
-  const ab = await file.arrayBuffer();
-  const uploadRes = await fetch(
-    `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${key}`,
-    {
-      method: 'POST',
-      headers: {
-        'X-Goog-Upload-Command': 'start, upload, finalize',
-        'X-Goog-Upload-Header-Content-Type': 'application/pdf',
-        'X-Goog-Upload-Header-Content-Length': String(ab.byteLength),
-        'Content-Type': 'application/pdf',
-      },
-      body: ab,
-    },
-  );
-  if (!uploadRes.ok) {
-    const err = await uploadRes.json().catch(() => ({}));
-    throw new Error(err?.error?.message ?? `File upload failed (${uploadRes.status})`);
-  }
-  const data = await uploadRes.json();
-  const fileUri = data?.file?.uri;
-  if (!fileUri) throw new Error('File upload did not return a URI.');
-  return fileUri;
 }
 
 export async function importSaleRow(companyId, row, batchId, orderIndex) {
@@ -162,30 +151,28 @@ export async function importSaleRow(companyId, row, batchId, orderIndex) {
     importBatchId: batchId,
     invoiceNumber: `IMP-${batchId.slice(-6).toUpperCase()}-${serial}`,
     date,
-    lineItems: [
-      {
-        itemName:     String(row.itemName ?? '').trim() || 'Imported Item',
-        itemId:       null,
-        unit:         'portion',
-        quantity:     qty,
-        unitPrice,
-        gstRate:      0,
-        lineSubtotal: subtotal,
-        lineGST:      gstAmount,
-      },
-    ],
+    lineItems: [{
+      itemName:     String(row.itemName ?? '').trim() || 'Imported Item',
+      itemId:       null,
+      unit:         'portion',
+      quantity:     qty,
+      unitPrice,
+      gstRate:      0,
+      lineSubtotal: subtotal,
+      lineGST:      gstAmount,
+    }],
     subtotal,
-    totalGST:       gstAmount,
-    discountAmount: 0,
-    grandTotal:     totalAmount,
+    totalGST:         gstAmount,
+    discountAmount:   0,
+    grandTotal:       totalAmount,
     paymentMode,
-    paidAmount:     totalAmount,
-    balanceDue:     0,
-    status:         'paid',
+    paidAmount:       totalAmount,
+    balanceDue:       0,
+    status:           'paid',
     customerSnapshot: { name: '', phone: '', address: '', GSTIN: '' },
-    customerId:     null,
-    notes:          '',
-    createdAt:      serverTimestamp(),
-    updatedAt:      serverTimestamp(),
+    customerId:       null,
+    notes:            '',
+    createdAt:        serverTimestamp(),
+    updatedAt:        serverTimestamp(),
   });
 }
