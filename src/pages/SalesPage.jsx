@@ -116,41 +116,54 @@ function buildMappingInfo(mapping) {
 }
 
 const SKIP_ITEM_VALUES = new Set([
-  'total', 'min.', 'max.', 'avg.', 'taxable', 'non-taxable',
-  'restaurant', 'category', 'item', 'name',
+  'total', 'min', 'max', 'avg', 'average', 'subtotal', 'grand total',
+  'taxable', 'non-taxable', 'restaurant', 'category', 'item', 'name', 'header',
 ]);
 
 // Applies a mapping object to parsed CSV/Excel rows
 function applyMappingToRows(data, mapping, today) {
-  const itemCol = mapping.itemName || Object.keys(data[0] || {})[0];
-  if (!itemCol || !data.length) return [];
-  return data
-    .filter((row) => {
-      const nameVal = String(row[itemCol] ?? '').trim();
-      if (!nameVal || SKIP_ITEM_VALUES.has(nameVal.toLowerCase())) return false;
-      const qty   = Number(row[mapping.quantity])    || 0;
-      const price = Number(row[mapping.unitPrice])   || 0;
-      const total = Number(row[mapping.totalAmount]) || 0;
-      if (qty === 0 && price === 0 && total === 0) return false;
-      return true;
-    })
-    .map((row) => {
-      const qty      = Number(row[mapping.quantity])    || 1;
-      const unitPri  = Number(row[mapping.unitPrice])   || 0;
-      const totalAmt = Number(row[mapping.totalAmount]) || (qty * unitPri);
-      const taxAmt   = Number(row[mapping.taxAmount])   || 0;
-      return {
-        id:           Math.random().toString(36).slice(2),
-        date:         (mapping.date && row[mapping.date]) ? String(row[mapping.date]).trim() : today,
-        customerName: 'Walk-in',
-        category:     (mapping.category && row[mapping.category]) ? String(row[mapping.category]).trim() : 'Other',
-        lineItems:    [{ itemName: String(row[itemCol] ?? '').trim() || 'Item', quantity: qty, unitPrice: unitPri, gstRate: 0 }],
-        totalAmount:  totalAmt,
-        taxAmount:    taxAmt,
-        paymentMode:  'Cash',
-        notes:        '',
-      };
-    });
+  console.log('Headers array:',   JSON.stringify(Object.keys(data[0] ?? {})));
+  console.log('Mapping object:',  JSON.stringify(mapping));
+  console.log('Raw rows[0]:',     JSON.stringify(data[0]));
+  console.log('Raw rows[1]:',     JSON.stringify(data[1]));
+  console.log('Raw rows[2]:',     JSON.stringify(data[2]));
+
+  if (!mapping.itemName || !data.length) return [];
+
+  const filteredRows = data.filter((row) => {
+    const itemVal = row[mapping.itemName];
+    if (!itemVal || itemVal.toString().trim() === '') return false;
+    if (SKIP_ITEM_VALUES.has(itemVal.toString().toLowerCase().trim())) return false;
+    return true;
+  });
+
+  console.log('Filtered rows count:', filteredRows.length);
+  console.log('First filtered row:', JSON.stringify(filteredRows[0]));
+
+  // If the filter wiped everything, use all rows as-is
+  const rows = filteredRows.length > 0 ? filteredRows : (
+    console.log('Filter removed all rows — using all rows without filter'),
+    data
+  );
+
+  const itemCol = mapping.itemName;
+  return rows.map((row) => {
+    const qty      = Number(row[mapping.quantity])    || 1;
+    const unitPri  = Number(row[mapping.unitPrice])   || 0;
+    const totalAmt = Number(row[mapping.totalAmount]) || (qty * unitPri);
+    const taxAmt   = Number(row[mapping.taxAmount])   || 0;
+    return {
+      id:           Math.random().toString(36).slice(2),
+      date:         (mapping.date && row[mapping.date]) ? String(row[mapping.date]).trim() : today,
+      customerName: 'Walk-in',
+      category:     (mapping.category && row[mapping.category]) ? String(row[mapping.category]).trim() : 'Other',
+      lineItems:    [{ itemName: String(row[itemCol] ?? '').trim() || 'Item', quantity: qty, unitPrice: unitPri, gstRate: 0 }],
+      totalAmount:  totalAmt,
+      taxAmount:    taxAmt,
+      paymentMode:  'Cash',
+      notes:        '',
+    };
+  });
 }
 
 function normalisePaymentMode(raw) {
