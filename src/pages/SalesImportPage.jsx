@@ -25,7 +25,6 @@ function fmtDate(str) {
 
 const TABS = [
   ['csv',   'CSV / Excel'],
-  ['pdf',   'PDF Report'],
   ['image', 'Image / Scan'],
 ];
 
@@ -38,7 +37,6 @@ export default function SalesImportPage() {
 
   const [tab, setTab]               = useState('csv');
   const [csvFile, setCsvFile]       = useState(null);
-  const [pdfFile, setPdfFile]       = useState(null);
   const [imgFile, setImgFile]       = useState(null);
   const [csvKey, setCsvKey]         = useState(0);
 
@@ -157,20 +155,19 @@ export default function SalesImportPage() {
     }
   }
 
-  // ── PDF / Image extraction ────────────────────────────────────────────────
+  // ── Image extraction ──────────────────────────────────────────────────────
 
   async function handleExtract() {
-    const fileToUse = tab === 'image' ? imgFile : pdfFile;
-    if (!fileToUse) return;
+    if (!imgFile) return;
     setError(null);
     setPreview(null);
     setSavedCount(null);
     setLoading(true);
-    setLoadingMsg(tab === 'image' ? 'Scanning image with AI…' : 'Extracting data from PDF…');
+    setLoadingMsg('Scanning image with AI…');
     try {
-      const items = await extractSalesFromImage(fileToUse);
+      const items = await extractSalesFromImage(imgFile);
       if (items.length === 0) {
-        setError('No sales rows found. Try a clearer image or PDF.');
+        setError('No sales rows found. Try a clearer image.');
         return;
       }
       setPreview(items);
@@ -224,7 +221,7 @@ export default function SalesImportPage() {
   const selectedCount = selectedRows.length;
   const totalSales    = selectedRows.reduce((s, r) => s + (Number(r.totalAmount) || 0), 0);
   const totalGst      = selectedRows.reduce((s, r) => s + (Number(r.gstAmount)   || 0), 0);
-  const canExtract    = tab === 'image' ? !!imgFile : !!pdfFile;
+  const canExtract    = !!imgFile;
   const hasDone       = savedCount !== null;
 
   // Date range of preview data
@@ -289,39 +286,6 @@ export default function SalesImportPage() {
               onChange={(e) => handleCsvFile(e.target.files[0] ?? null)}
             />
           </label>
-        </div>
-      )}
-
-      {/* ── PDF upload ── */}
-      {tab === 'pdf' && (
-        <div className="space-y-3">
-          <p className="text-sm text-gray-500">
-            Upload a PDF sales report — Gemini Vision reads the document and extracts sales data.
-          </p>
-          <label className="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 p-10 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition">
-            <svg className="h-10 w-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-            </svg>
-            <span className="text-sm text-gray-500">
-              {pdfFile ? pdfFile.name : 'Click to upload PDF sales report'}
-            </span>
-            <input
-              type="file"
-              accept="application/pdf"
-              className="hidden"
-              onChange={(e) => { setPdfFile(e.target.files[0] ?? null); setPreview(null); setSavedCount(null); }}
-            />
-          </label>
-          {pdfFile && savedCount === null && !loading && (
-            <button
-              type="button"
-              onClick={handleExtract}
-              className="flex items-center gap-2 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition"
-            >
-              Extract with Gemini AI
-            </button>
-          )}
         </div>
       )}
 
@@ -533,7 +497,6 @@ export default function SalesImportPage() {
                 setPreview(null);
                 setCsvFile(null);
                 setCsvKey((k) => k + 1);
-                setPdfFile(null);
                 setImgFile(null);
               }}
               className="text-sm text-gray-500 hover:text-gray-700 transition"
@@ -585,7 +548,6 @@ export default function SalesImportPage() {
                 setPreview(null);
                 setCsvFile(null);
                 setCsvKey((k) => k + 1);
-                setPdfFile(null);
                 setImgFile(null);
               }}
               className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"

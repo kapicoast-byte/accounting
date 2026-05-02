@@ -7,7 +7,6 @@ import { useApp } from '../context/AppContext';
 import { useRole } from '../hooks/useRole';
 import { listSales, createSale, SALE_STATUS, PAYMENT_MODES } from '../services/saleService';
 import { writeSalesItems } from '../services/salesItemService';
-import { extractTextFromPDF, parsePdfRows } from '../services/saleImportService';
 import { BUSINESS_TYPES } from '../services/companyService';
 import { startOfDay, endOfDay, toJsDate } from '../utils/dateUtils';
 import { formatCurrency } from '../utils/format';
@@ -355,7 +354,6 @@ function ImportModal({ open, onClose, companyId, onImported }) {
 
   async function handleExtract() {
     if (!file) return;
-    const isPdf   = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
     const isExcel = /\.(xlsx|xls)$/i.test(file.name) ||
       file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
       file.type === 'application/vnd.ms-excel';
@@ -368,29 +366,10 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     console.log('1. File name:', file.name);
     console.log('2. File type:', file.type);
     console.log('3. File size:', file.size);
-    console.log('   Detected →', isPdf ? 'PDF' : isExcel ? 'Excel' : isCsv ? 'CSV' : 'UNKNOWN');
+    console.log('   Detected →', isExcel ? 'Excel' : isCsv ? 'CSV' : 'UNKNOWN');
 
     try {
-      if (isPdf) {
-        setProgress('Extracting text from PDF…');
-        // Logs 1–5 emitted inside extractTextFromPDF + parsePdfRows
-        const fullText = await extractTextFromPDF(file);
-        if (!fullText.trim()) throw new Error('Could not extract text from this PDF. It may be a scanned image.');
-
-        setProgress('Parsing rows…');
-        const parsed = parsePdfRows(fullText);
-        console.log('6. Parsed row count:', parsed.length);
-        console.log('7. First parsed row:', parsed[0]);
-        if (!parsed.length) throw new Error('No data rows found in this PDF.');
-
-        setMappingInfo({
-          mapped:  ['Item Name → Item', 'Category → Category', 'Quantity → Qty', 'Unit Price → My Amount', 'Total Amount → Gross Sales', 'Tax Amount → Tax'],
-          missing: [],
-        });
-        setRowsAndSelect(parsed);
-        setStep('preview');
-
-      } else if (isExcel) {
+      if (isExcel) {
         setProgress('Parsing Excel…');
         const { rows: extracted, headers, colMap, reportDate: detectedDate } = await parseExcel(file);
         if (!extracted.length) throw new Error('No data rows found in this Excel file.');
@@ -450,7 +429,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
         setStep('preview');
 
       } else {
-        throw new Error('Unsupported file type. Please use PDF, CSV, or Excel.');
+        throw new Error('Unsupported file type. Please use CSV or Excel (.xlsx/.xls).');
       }
     } catch (e) {
       console.error('─── IMPORT ERROR ────────────────────────────────────');
@@ -558,7 +537,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
               Import Sales Report
             </h2>
             <p className="mt-0.5 text-xs" style={{ color: 'var(--db-text-3)' }}>
-              {step === 'upload'  && 'PDF · CSV · Excel'}
+              {step === 'upload'  && 'CSV · Excel'}
               {step === 'preview' && `${rows.length} rows extracted — review & import`}
               {step === 'done'    && 'Import complete'}
             </p>
@@ -596,7 +575,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
                 }}
               >
                 <input ref={fileRef} type="file" className="hidden"
-                  accept=".csv,.txt,.pdf,.xlsx,.xls"
+                  accept=".csv,.txt,.xlsx,.xls"
                   onChange={(e) => { setFile(e.target.files[0] ?? null); setExtractErr(''); }} />
 
                 {file ? (
@@ -630,11 +609,10 @@ function ImportModal({ open, onClose, companyId, onImported }) {
                       <p className="text-sm font-medium" style={{ color: 'var(--db-text-2)' }}>
                         Drop a file here or click to browse
                       </p>
-                      <p className="mt-0.5 text-xs" style={{ color: 'var(--db-text-3)' }}>PDF · CSV · Excel</p>
+                      <p className="mt-0.5 text-xs" style={{ color: 'var(--db-text-3)' }}>CSV · Excel</p>
                     </div>
                     <div className="flex gap-2">
                       {[
-                        { label: 'PDF', color: 'var(--db-red)',   bg: 'var(--db-red-dim)'   },
                         { label: 'CSV', color: 'var(--db-green)', bg: 'var(--db-green-dim)' },
                         { label: 'XLS', color: 'var(--db-blue)',  bg: 'var(--db-blue-dim)'  },
                       ].map(({ label, color, bg }) => (

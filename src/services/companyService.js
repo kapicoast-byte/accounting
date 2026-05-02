@@ -169,7 +169,7 @@ export const SALES_ENTRY_MODES = [
     value: 'Document Upload',
     label: 'Document Upload',
     icon:  '📄',
-    desc:  'Upload daily or monthly sales reports (CSV, PDF, or image) — AI extracts and imports the data.',
+    desc:  'Upload daily or monthly sales reports (CSV, Excel, or image) — AI extracts and imports the data.',
   },
   {
     value: 'Both',
