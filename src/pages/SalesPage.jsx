@@ -224,22 +224,23 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     setExtracting(true);
     setExtractErr('');
 
+    console.log('─── IMPORT START ───────────────────────────────────');
+    console.log('1. File name:', file.name);
+    console.log('2. File type:', file.type);
+    console.log('3. File size:', file.size);
+    console.log('   Detected →', isPdf ? 'PDF' : isExcel ? 'Excel' : isCsv ? 'CSV' : 'UNKNOWN');
+
     try {
       if (isPdf) {
         setProgress('Extracting text from PDF…');
+        // Logs 1–5 emitted inside extractTextFromPDF + parsePdfRows
         const fullText = await extractTextFromPDF(file);
         if (!fullText.trim()) throw new Error('Could not extract text from this PDF. It may be a scanned image.');
 
-        const lines = fullText.split('\n').filter(l => l.trim());
-        console.log('File headers:', lines[0]);
-        console.log('Sample row:', lines[1]);
-        console.log('Gemini prompt:', '(skipped — fixed-format PDF parser)');
-        console.log('Gemini raw response:', '(skipped — fixed-format PDF parser)');
-
         setProgress('Parsing rows…');
         const parsed = parsePdfRows(fullText);
-        console.log('Column mapping result: fixed → Item, Category, Qty, My Amount, Tax, Gross Sales');
-        console.log('First parsed row:', parsed[0]);
+        console.log('6. Parsed row count:', parsed.length);
+        console.log('7. First parsed row:', parsed[0]);
         if (!parsed.length) throw new Error('No data rows found in this PDF.');
 
         setMappingInfo({
@@ -251,25 +252,26 @@ function ImportModal({ open, onClose, companyId, onImported }) {
 
       } else if (isExcel) {
         setProgress('Parsing Excel…');
-        const ab   = await file.arrayBuffer();
-        const wb   = XLSX.read(ab, { type: 'array' });
-        const ws   = wb.Sheets[wb.SheetNames[0]];
-        const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
-        if (!data.length) throw new Error('Excel file appears to be empty.');
+        const ab  = await file.arrayBuffer();
+        const wb  = XLSX.read(ab, { type: 'array' });
+        const ws  = wb.Sheets[wb.SheetNames[0]];
+        const raw = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        console.log('4. Raw parsed data:', raw.slice(0, 3));
+        if (!raw.length) throw new Error('Excel file appears to be empty.');
 
-        const headers = Object.keys(data[0]);
-        console.log('File headers:', headers);
-        console.log('Sample row:', data[0]);
+        const headers = Object.keys(raw[0]);
+        console.log('5. Headers found:', headers);
+        console.log('6. First 3 rows:', raw.slice(0, 3));
+
         const mapping = mapColumns(headers);
-        console.log('Gemini prompt:', '(skipped — local mapping only)');
-        console.log('Gemini raw response:', '(skipped — local mapping only)');
-        console.log('Column mapping result:', mapping);
-        setMappingInfo(buildMappingInfo(mapping));
+        console.log('7. Column mapping result:', mapping);
 
         setProgress('Mapping columns…');
-        const mapped = applyMappingToRows(data, mapping, today);
-        if (!mapped.length) throw new Error('Could not map any rows from this file.');
+        const mapped = applyMappingToRows(raw, mapping, today);
+        console.log('8. Rows after filtering:', mapped.length);
+        setMappingInfo(buildMappingInfo(mapping));
 
+        if (!mapped.length) throw new Error('Could not map any rows from this file.');
         setRowsAndSelect(mapped);
         setStep('preview');
 
@@ -277,21 +279,22 @@ function ImportModal({ open, onClose, companyId, onImported }) {
         setProgress('Parsing CSV…');
         const content = await file.text();
         const parsed  = Papa.parse(content, { header: true, skipEmptyLines: true });
+        console.log('4. Raw parsed data:', parsed.data.slice(0, 3));
         if (!parsed.data.length) throw new Error('CSV file appears to be empty.');
 
         const headers = Object.keys(parsed.data[0]);
-        console.log('File headers:', headers);
-        console.log('Sample row:', parsed.data[0]);
+        console.log('5. Headers found:', headers);
+        console.log('6. First 3 rows:', parsed.data.slice(0, 3));
+
         const mapping = mapColumns(headers);
-        console.log('Gemini prompt:', '(skipped — local mapping only)');
-        console.log('Gemini raw response:', '(skipped — local mapping only)');
-        console.log('Column mapping result:', mapping);
-        setMappingInfo(buildMappingInfo(mapping));
+        console.log('7. Column mapping result:', mapping);
 
         setProgress('Mapping columns…');
         const mapped = applyMappingToRows(parsed.data, mapping, today);
-        if (!mapped.length) throw new Error('Could not map any rows from this file.');
+        console.log('8. Rows after filtering:', mapped.length);
+        setMappingInfo(buildMappingInfo(mapping));
 
+        if (!mapped.length) throw new Error('Could not map any rows from this file.');
         setRowsAndSelect(mapped);
         setStep('preview');
 
@@ -299,6 +302,8 @@ function ImportModal({ open, onClose, companyId, onImported }) {
         throw new Error('Unsupported file type. Please use PDF, CSV, or Excel.');
       }
     } catch (e) {
+      console.error('─── IMPORT ERROR ────────────────────────────────────');
+      console.error(e);
       setExtractErr(e.message ?? 'Extraction failed.');
     } finally {
       setExtracting(false);

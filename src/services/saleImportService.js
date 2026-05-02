@@ -15,6 +15,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 export async function extractTextFromPDF(file) {
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  console.log('1. PDF pages:', pdf.numPages);
+
   let fullText = '';
 
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
@@ -37,9 +39,16 @@ export async function extractTextFromPDF(file) {
       )
       .filter(l => l.trim());
 
+    if (pageNum === 1) {
+      console.log('2. Page 1 text:', pageLines.join('\n'));
+    }
+
     fullText += pageLines.join('\n') + '\n';
   }
 
+  console.log('3. All extracted text:', fullText.substring(0, 500));
+  const allLines = fullText.split('\n').filter(l => l.trim());
+  console.log('4. Lines after split:', allLines.slice(0, 10));
   return fullText;
 }
 
@@ -57,13 +66,13 @@ export function parsePdfRows(fullText) {
   const today  = new Date().toISOString().slice(0, 10);
   const result = [];
 
-  for (const rawLine of fullText.split('\n')) {
-    // Normalise tabs → spaces so number positions are stable
-    const line = rawLine.replace(/\t+/g, ' ').replace(/\s{2,}/g, ' ').trim();
-    if (!line) continue;
-    if (SKIP_ROW_START.test(line)) continue;
+  const validLines = fullText
+    .split('\n')
+    .map(l => l.replace(/\t+/g, ' ').replace(/\s{2,}/g, ' ').trim())
+    .filter(l => l && !SKIP_ROW_START.test(l));
+  console.log('5. Lines after filter:', validLines.slice(0, 5));
 
-    // Extract all numbers (integers + decimals)
+  for (const line of validLines) {
     const numMatches = [...line.matchAll(/\d+(?:[.,]\d+)*/g)];
     if (numMatches.length < 2) continue;
 
