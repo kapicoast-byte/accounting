@@ -44,62 +44,82 @@ export async function extractTextFromPDF(file) {
 }
 
 // ─── PDF row parser ────────────────────────────────────────────────────────────
+//
+// Format (Kapi Coast sales report):
+//   [Taxable|Non-Taxable] [RESTAURANT] [CATEGORY] [Item Name] qty myAmt discount tax grossSales
+//
+// Strategy: extract the 5 trailing numbers, parse text before them for category + item.
 
-const SKIP_ROW = /^(total|grand\s+total|min\b|max\b|avg\b|average|subtotal|sub\s+total|summary)\b/i;
+const SKIP_ROW_START = /^(total|grand\s+total|min\.?|max\.?|avg\.?|average|subtotal|sub\s+total|summary)\b/i;
+const ITEM_BLACKLIST  = new Set(['total', 'min.', 'max.', 'avg.', 'taxable', 'non-taxable', 'restaurant', 'category', 'item', 'name']);
 
-function findColIdx(headerCols, name) {
-  if (!name) return -1;
-  const n = name.toLowerCase().trim();
-  let i = headerCols.findIndex(h => h.toLowerCase().trim() === n);
-  if (i !== -1) return i;
-  i = headerCols.findIndex(h => h.toLowerCase().includes(n));
-  if (i !== -1) return i;
-  i = headerCols.findIndex(h => {
-    const hh = h.toLowerCase().trim();
-    return hh.length > 2 && n.includes(hh);
-  });
-  return i;
-}
-
-export function parsePdfRows(fullText, mapping) {
-  const lines = fullText.split('\n').map(l => l.trim()).filter(l => l);
-  const itemHeader = (mapping.itemName || 'Item').toLowerCase();
-  const headerIdx  = lines.findIndex(l => l.toLowerCase().includes(itemHeader));
-  if (headerIdx === -1) return [];
-
-  const headerCols = lines[headerIdx].split('\t');
-  const idxMap = {};
-  for (const [field, colName] of Object.entries(mapping)) {
-    if (colName) idxMap[field] = findColIdx(headerCols, colName);
-  }
-  if (idxMap.itemName == null || idxMap.itemName === -1) return [];
-
+export function parsePdfRows(fullText) {
   const today  = new Date().toISOString().slice(0, 10);
   const result = [];
 
-  for (const line of lines.slice(headerIdx + 1)) {
-    if (SKIP_ROW.test(line)) continue;
-    const cols     = line.split('\t');
-    const itemName = cols[idxMap.itemName]?.trim();
-    if (!itemName) continue;
+  for (const rawLine of fullText.split('\n')) {
+    // Normalise tabs → spaces so number positions are stable
+    const line = rawLine.replace(/\t+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+    if (!line) continue;
+    if (SKIP_ROW_START.test(line)) continue;
 
-    const qty      = Number((cols[idxMap.quantity]    ?? '').replace(/[,\s]/g, '')) || 1;
-    const totalAmt = Number((cols[idxMap.totalAmount] ?? '').replace(/[,\s]/g, '')) || 0;
-    const taxAmt   = Number((cols[idxMap.taxAmount]   ?? '').replace(/[,\s]/g, '')) || 0;
-    const category = cols[idxMap.category]?.trim() || 'Other';
-    const unitPri  = Number((cols[idxMap.unitPrice]   ?? '').replace(/[,\s]/g, ''))
-      || (totalAmt > taxAmt ? (totalAmt - taxAmt) / Math.max(qty, 1) : totalAmt / Math.max(qty, 1));
+    // Extract all numbers (integers + decimals)
+    const numMatches = [...line.matchAll(/\d+(?:[.,]\d+)*/g)];
+    if (numMatches.length < 2) continue;
+
+    // Last 5 numbers map to: qty | myAmount | discount | tax | grossSales
+    const trailing  = numMatches.slice(-5);
+    const n         = trailing.length;
+    const grossSales = parseFloat(trailing[n - 1][0].replace(',', '')) || 0;
+    const tax        = n >= 2 ? parseFloat(trailing[n - 2][0].replace(',', '')) || 0 : 0;
+    // trailing[n-3] = discount (consumed for position, not stored separately)
+    const myAmount   = n >= 4 ? parseFloat(trailing[n - 4][0].replace(',', '')) || 0 : 0;
+    const qty        = n >= 5 ? parseFloat(trailing[n - 5][0].replace(',', '')) || 1 : 1;
+
+    if (grossSales === 0 && myAmount === 0) continue;
+
+    // Text before the first of the trailing numbers
+    let textPart = line.slice(0, trailing[0].index).trim();
+
+    // Strip leading tax-type word
+    textPart = textPart.replace(/^non-taxable\s+/i, '').replace(/^taxable\s+/i, '').trim();
+
+    // Strip restaurant name prefix ("KAPI COAST")
+    const restaurantTag = 'KAPI COAST';
+    const rIdx = textPart.toUpperCase().indexOf(restaurantTag);
+    if (rIdx !== -1) {
+      textPart = textPart.slice(rIdx + restaurantTag.length).trim();
+    }
+
+    // Leading ALL-CAPS words → category; first mixed-case word onwards → item name
+    const words    = textPart.split(/\s+/).filter(Boolean);
+    const catWords  = [];
+    const itemWords = [];
+    let inCat = true;
+    for (const w of words) {
+      if (inCat && !/[a-z]/.test(w)) catWords.push(w);
+      else { inCat = false; itemWords.push(w); }
+    }
+
+    const category = catWords.join(' ').replace(/\s*[&\-]\s*$/, '').trim() || 'Other';
+    const itemName = itemWords.join(' ').trim();
+
+    if (!itemName || ITEM_BLACKLIST.has(itemName.toLowerCase())) continue;
+
+    const unitPrice = myAmount > 0
+      ? myAmount / Math.max(qty, 1)
+      : grossSales / Math.max(qty, 1);
 
     result.push({
-      id:          Math.random().toString(36).slice(2),
-      date:        today,
-      customerName:'Walk-in',
+      id:           Math.random().toString(36).slice(2),
+      date:         today,
+      customerName: 'Walk-in',
       category,
-      lineItems:   [{ itemName, quantity: qty, unitPrice: unitPri, gstRate: 0 }],
-      totalAmount: totalAmt,
-      taxAmount:   taxAmt,
-      paymentMode: 'Cash',
-      notes:       '',
+      lineItems:    [{ itemName, quantity: qty, unitPrice, gstRate: 0 }],
+      totalAmount:  grossSales,
+      taxAmount:    tax,
+      paymentMode:  'Cash',
+      notes:        '',
     });
   }
 

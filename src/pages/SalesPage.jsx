@@ -72,31 +72,28 @@ function fmtDate(ts) {
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 // Pure local column mapping — no API calls, works offline
+// Uses exact-match lookup; first matching option wins
 function mapColumns(headers) {
   const h = headers.map(x => x?.toLowerCase()?.trim() ?? '');
-  const mapping = {
-    itemName:    headers[h.findIndex(x => ['name','item','item name','product'].includes(x))] || null,
-    category:    headers[h.findIndex(x => ['category','parent_category','type'].includes(x))] || null,
-    quantity:    headers[h.findIndex(x => ['qty','quantity','units','count'].includes(x))] || null,
-    unitPrice:   headers[h.findIndex(x => ['price','rate','unit price','my amount'].includes(x))] || null,
-    totalAmount: headers[h.findIndex(x => ['gross sales','total','amount','grosssales','gross_sales'].includes(x))] || null,
-    taxAmount:   headers[h.findIndex(x => ['tax','gst','tax amount'].includes(x))] || null,
+  const find = (...options) => {
+    for (const opt of options) {
+      const idx = h.findIndex(x => x === opt.toLowerCase());
+      if (idx !== -1) return headers[idx];
+    }
+    return null;
   };
-  // Fallback: use the first non-empty column as itemName
+  const mapping = {
+    itemName:    find('item', 'name', 'item name', 'product', 'description'),
+    category:    find('category', 'parent_category', 'type', 'group'),
+    quantity:    find('qty', 'quantity', 'units', 'count', 'pieces'),
+    unitPrice:   find('price', 'rate', 'unit price', 'my amount'),
+    totalAmount: find('gross sales', 'total', 'amount', 'gross_sales', 'grosssales', 'net amount'),
+    taxAmount:   find('tax', 'gst', 'tax amount', 'vat'),
+  };
   if (!mapping.itemName) {
     mapping.itemName = headers.find(col => col && String(col).trim()) || null;
   }
   return mapping;
-}
-
-// Finds tab-separated header row in extracted PDF text
-function findPdfHeaders(fullText) {
-  const lines = fullText.split('\n').map(l => l.trim()).filter(l => l);
-  for (const line of lines) {
-    const cols = line.split('\t').map(c => c.trim()).filter(c => c);
-    if (cols.length >= 3) return cols;
-  }
-  return [];
 }
 
 const FIELD_LABELS = {
@@ -118,27 +115,40 @@ function buildMappingInfo(mapping) {
   return { mapped, missing };
 }
 
+const SKIP_ITEM_VALUES = new Set([
+  'total', 'min.', 'max.', 'avg.', 'taxable', 'non-taxable',
+  'restaurant', 'category', 'item', 'name',
+]);
+
 // Applies a mapping object to parsed CSV/Excel rows
 function applyMappingToRows(data, mapping, today) {
   const itemCol = mapping.itemName || Object.keys(data[0] || {})[0];
   if (!itemCol || !data.length) return [];
   return data
-    .filter((row) => row[itemCol])
+    .filter((row) => {
+      const nameVal = String(row[itemCol] ?? '').trim();
+      if (!nameVal || SKIP_ITEM_VALUES.has(nameVal.toLowerCase())) return false;
+      const qty   = Number(row[mapping.quantity])    || 0;
+      const price = Number(row[mapping.unitPrice])   || 0;
+      const total = Number(row[mapping.totalAmount]) || 0;
+      if (qty === 0 && price === 0 && total === 0) return false;
+      return true;
+    })
     .map((row) => {
       const qty      = Number(row[mapping.quantity])    || 1;
       const unitPri  = Number(row[mapping.unitPrice])   || 0;
       const totalAmt = Number(row[mapping.totalAmount]) || (qty * unitPri);
       const taxAmt   = Number(row[mapping.taxAmount])   || 0;
       return {
-        id:          Math.random().toString(36).slice(2),
-        date:        (mapping.date && row[mapping.date]) ? String(row[mapping.date]).trim() : today,
-        customerName:'Walk-in',
-        category:    (mapping.category && row[mapping.category]) ? String(row[mapping.category]).trim() : 'Other',
-        lineItems:   [{ itemName: String(row[itemCol] ?? '').trim() || 'Item', quantity: qty, unitPrice: unitPri, gstRate: 0 }],
-        totalAmount: totalAmt,
-        taxAmount:   taxAmt,
-        paymentMode: 'Cash',
-        notes:       '',
+        id:           Math.random().toString(36).slice(2),
+        date:         (mapping.date && row[mapping.date]) ? String(row[mapping.date]).trim() : today,
+        customerName: 'Walk-in',
+        category:     (mapping.category && row[mapping.category]) ? String(row[mapping.category]).trim() : 'Other',
+        lineItems:    [{ itemName: String(row[itemCol] ?? '').trim() || 'Item', quantity: qty, unitPrice: unitPri, gstRate: 0 }],
+        totalAmount:  totalAmt,
+        taxAmount:    taxAmt,
+        paymentMode:  'Cash',
+        notes:        '',
       };
     });
 }
@@ -220,19 +230,22 @@ function ImportModal({ open, onClose, companyId, onImported }) {
         const fullText = await extractTextFromPDF(file);
         if (!fullText.trim()) throw new Error('Could not extract text from this PDF. It may be a scanned image.');
 
-        const pdfHeaders = findPdfHeaders(fullText);
-        console.log('File headers:', pdfHeaders);
-        console.log('Sample row:', fullText.split('\n').filter(l => l.trim()).slice(1, 2));
-        const mapping = mapColumns(pdfHeaders);
-        console.log('Gemini prompt:', '(skipped — local mapping only)');
-        console.log('Gemini raw response:', '(skipped — local mapping only)');
-        console.log('Column mapping result:', mapping);
-        setMappingInfo(buildMappingInfo(mapping));
+        const lines = fullText.split('\n').filter(l => l.trim());
+        console.log('File headers:', lines[0]);
+        console.log('Sample row:', lines[1]);
+        console.log('Gemini prompt:', '(skipped — fixed-format PDF parser)');
+        console.log('Gemini raw response:', '(skipped — fixed-format PDF parser)');
 
         setProgress('Parsing rows…');
-        const parsed = parsePdfRows(fullText, mapping);
+        const parsed = parsePdfRows(fullText);
+        console.log('Column mapping result: fixed → Item, Category, Qty, My Amount, Tax, Gross Sales');
+        console.log('First parsed row:', parsed[0]);
         if (!parsed.length) throw new Error('No data rows found in this PDF.');
 
+        setMappingInfo({
+          mapped:  ['Item Name → Item', 'Category → Category', 'Quantity → Qty', 'Unit Price → My Amount', 'Total Amount → Gross Sales', 'Tax Amount → Tax'],
+          missing: [],
+        });
         setRowsAndSelect(parsed);
         setStep('preview');
 
