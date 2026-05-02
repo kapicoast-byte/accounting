@@ -182,6 +182,92 @@ function dateToTs(dateStr) {
 
 // ── Import Modal ───────────────────────────────────────────────────────────────
 
+async function parseExcel(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const workbook    = XLSX.read(arrayBuffer, { type: 'array' });
+  const sheet       = workbook.Sheets[workbook.SheetNames[0]];
+
+  // Raw arrays — let us find the real header row ourselves
+  const allRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+  console.log('All rows raw:', allRows.slice(0, 10));
+
+  // First row whose cells include 'item', 'name', 'qty', or 'quantity'
+  let headerRowIndex = -1;
+  for (let i = 0; i < allRows.length; i++) {
+    const cells = allRows[i].map(c => c?.toString()?.toLowerCase()?.trim());
+    if (cells.includes('item') || cells.includes('name') ||
+        cells.includes('qty') || cells.includes('quantity')) {
+      headerRowIndex = i;
+      break;
+    }
+  }
+  console.log('Header row found at index:', headerRowIndex);
+  console.log('Header row:', allRows[headerRowIndex]);
+
+  if (headerRowIndex === -1) headerRowIndex = 0;
+
+  const headers  = allRows[headerRowIndex].map(h => h?.toString()?.trim());
+  const dataRows = allRows.slice(headerRowIndex + 1);
+  console.log('Headers:', headers);
+  console.log('First data row:', dataRows[0]);
+  console.log('Total data rows:', dataRows.length);
+
+  const find = (...opts) => {
+    for (const opt of opts) {
+      const idx = headers.findIndex(h => h?.toLowerCase() === opt.toLowerCase());
+      if (idx !== -1) return idx;
+    }
+    return -1;
+  };
+
+  const colMap = {
+    itemName:    find('item', 'name', 'item name', 'product'),
+    category:    find('category', 'parent_category'),
+    quantity:    find('qty', 'quantity'),
+    unitPrice:   find('price', 'my amount', 'rate'),
+    totalAmount: find('gross sales', 'total', 'amount'),
+    taxAmount:   find('tax', 'gst'),
+  };
+  console.log('Column index map:', colMap);
+
+  const SKIP = new Set(['total','min','max','avg','taxable','non-taxable','restaurant','category','item','name']);
+
+  let extracted = dataRows
+    .filter(row => {
+      const itemVal = colMap.itemName !== -1 ? row[colMap.itemName] : row[0];
+      if (!itemVal || itemVal.toString().trim() === '') return false;
+      if (SKIP.has(itemVal.toString().toLowerCase().trim())) return false;
+      return true;
+    })
+    .map(row => ({
+      itemName:    String(colMap.itemName    !== -1 ? row[colMap.itemName]    : row[0]).trim(),
+      category:    String(colMap.category    !== -1 ? row[colMap.category]    : '').trim(),
+      quantity:    colMap.quantity    !== -1 ? Number(row[colMap.quantity])    || 1 : 1,
+      unitPrice:   colMap.unitPrice   !== -1 ? Number(row[colMap.unitPrice])   || 0 : 0,
+      totalAmount: colMap.totalAmount !== -1 ? Number(row[colMap.totalAmount]) || 0 : 0,
+      taxAmount:   colMap.taxAmount   !== -1 ? Number(row[colMap.taxAmount])   || 0 : 0,
+    }));
+
+  if (extracted.length === 0 && dataRows.length > 0) {
+    console.log('Filter removed all rows — using all rows without filter');
+    extracted = dataRows
+      .filter(row => (row[0] ?? '').toString().trim() !== '')
+      .map(row => ({
+        itemName:    String(colMap.itemName    !== -1 ? row[colMap.itemName]    : row[0]).trim(),
+        category:    String(colMap.category    !== -1 ? row[colMap.category]    : '').trim(),
+        quantity:    colMap.quantity    !== -1 ? Number(row[colMap.quantity])    || 1 : 1,
+        unitPrice:   colMap.unitPrice   !== -1 ? Number(row[colMap.unitPrice])   || 0 : 0,
+        totalAmount: colMap.totalAmount !== -1 ? Number(row[colMap.totalAmount]) || 0 : 0,
+        taxAmount:   colMap.taxAmount   !== -1 ? Number(row[colMap.taxAmount])   || 0 : 0,
+      }));
+  }
+
+  console.log('Final extracted rows:', extracted.length);
+  console.log('Sample:', extracted.slice(0, 3));
+
+  return { rows: extracted, headers, colMap };
+}
+
 function ImportModal({ open, onClose, companyId, onImported }) {
   const [step,           setStep]           = useState('upload'); // upload | preview | done
   const [file,           setFile]           = useState(null);
@@ -265,27 +351,32 @@ function ImportModal({ open, onClose, companyId, onImported }) {
 
       } else if (isExcel) {
         setProgress('Parsing Excel…');
-        const ab  = await file.arrayBuffer();
-        const wb  = XLSX.read(ab, { type: 'array' });
-        const ws  = wb.Sheets[wb.SheetNames[0]];
-        const raw = XLSX.utils.sheet_to_json(ws, { defval: '' });
-        console.log('4. Raw parsed data:', raw.slice(0, 3));
-        if (!raw.length) throw new Error('Excel file appears to be empty.');
+        const { rows: extracted, headers, colMap } = await parseExcel(file);
+        if (!extracted.length) throw new Error('No data rows found in this Excel file.');
 
-        const headers = Object.keys(raw[0]);
-        console.log('5. Headers found:', headers);
-        console.log('6. First 3 rows:', raw.slice(0, 3));
+        // Build mapping info for the preview banner
+        const mapped  = [];
+        const missing = [];
+        for (const [field, idx] of Object.entries(colMap)) {
+          if (idx !== -1) mapped.push(`${FIELD_LABELS[field]} → ${headers[idx]}`);
+          else if (field !== 'itemName') missing.push(FIELD_LABELS[field]);
+        }
+        setMappingInfo({ mapped, missing });
 
-        const mapping = mapColumns(headers);
-        console.log('7. Column mapping result:', mapping);
+        // Convert extracted rows to preview format
+        const previewRows = extracted.map(e => ({
+          id:           Math.random().toString(36).slice(2),
+          date:         today,
+          customerName: 'Walk-in',
+          category:     e.category || 'Other',
+          lineItems:    [{ itemName: e.itemName || 'Item', quantity: e.quantity, unitPrice: e.unitPrice, gstRate: 0 }],
+          totalAmount:  e.totalAmount || (e.quantity * e.unitPrice),
+          taxAmount:    e.taxAmount,
+          paymentMode:  'Cash',
+          notes:        '',
+        }));
 
-        setProgress('Mapping columns…');
-        const mapped = applyMappingToRows(raw, mapping, today);
-        console.log('8. Rows after filtering:', mapped.length);
-        setMappingInfo(buildMappingInfo(mapping));
-
-        if (!mapped.length) throw new Error('Could not map any rows from this file.');
-        setRowsAndSelect(mapped);
+        setRowsAndSelect(previewRows);
         setStep('preview');
 
       } else if (isCsv) {
