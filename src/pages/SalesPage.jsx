@@ -182,6 +182,33 @@ function dateToTs(dateStr) {
 
 // ── Import Modal ───────────────────────────────────────────────────────────────
 
+function normalizeDate(val) {
+  if (!val) return null;
+  const s = String(val).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+  // Excel date serial (days since 1900-01-01)
+  if (/^\d+(\.\d+)?$/.test(s) && Number(s) > 40000) {
+    const d = new Date((Number(s) - 25569) * 86400 * 1000);
+    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+}
+
+function findReportDate(headerRows) {
+  for (const row of headerRows) {
+    const text  = row.join(' ');
+    const match = text.match(/(\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{4}|\d{1,2}-\d{1,2}-\d{4})/);
+    if (match) {
+      const nd = normalizeDate(match[1]);
+      if (nd) return nd;
+    }
+  }
+  return null;
+}
+
 async function parseExcel(file) {
   const arrayBuffer = await file.arrayBuffer();
   const workbook    = XLSX.read(arrayBuffer, { type: 'array' });
@@ -227,10 +254,31 @@ async function parseExcel(file) {
     unitPrice:   find('price', 'my amount', 'rate'),
     totalAmount: find('gross sales', 'total', 'amount'),
     taxAmount:   find('tax', 'gst'),
+    date:        find('date', 'sale date', 'order date', 'bill date', 'transaction date'),
   };
   console.log('Column index map:', colMap);
 
+  // Derive a report-level date: prefer a date column in the data, else scan title rows
+  let reportDate = null;
+  if (colMap.date !== -1 && dataRows[0]?.[colMap.date]) {
+    reportDate = normalizeDate(dataRows[0][colMap.date]);
+  }
+  if (!reportDate) {
+    reportDate = findReportDate(allRows.slice(0, headerRowIndex));
+  }
+  console.log('Report date extracted:', reportDate);
+
   const SKIP = new Set(['total','min','max','avg','taxable','non-taxable','restaurant','category','item','name']);
+
+  const mapRow = (row) => ({
+    itemName:    String(colMap.itemName    !== -1 ? row[colMap.itemName]    : row[0]).trim(),
+    category:    String(colMap.category    !== -1 ? row[colMap.category]    : '').trim(),
+    quantity:    colMap.quantity    !== -1 ? Number(row[colMap.quantity])    || 1 : 1,
+    unitPrice:   colMap.unitPrice   !== -1 ? Number(row[colMap.unitPrice])   || 0 : 0,
+    totalAmount: colMap.totalAmount !== -1 ? Number(row[colMap.totalAmount]) || 0 : 0,
+    taxAmount:   colMap.taxAmount   !== -1 ? Number(row[colMap.taxAmount])   || 0 : 0,
+    date:        colMap.date        !== -1 ? normalizeDate(row[colMap.date]) : null,
+  });
 
   let extracted = dataRows
     .filter(row => {
@@ -239,33 +287,19 @@ async function parseExcel(file) {
       if (SKIP.has(itemVal.toString().toLowerCase().trim())) return false;
       return true;
     })
-    .map(row => ({
-      itemName:    String(colMap.itemName    !== -1 ? row[colMap.itemName]    : row[0]).trim(),
-      category:    String(colMap.category    !== -1 ? row[colMap.category]    : '').trim(),
-      quantity:    colMap.quantity    !== -1 ? Number(row[colMap.quantity])    || 1 : 1,
-      unitPrice:   colMap.unitPrice   !== -1 ? Number(row[colMap.unitPrice])   || 0 : 0,
-      totalAmount: colMap.totalAmount !== -1 ? Number(row[colMap.totalAmount]) || 0 : 0,
-      taxAmount:   colMap.taxAmount   !== -1 ? Number(row[colMap.taxAmount])   || 0 : 0,
-    }));
+    .map(mapRow);
 
   if (extracted.length === 0 && dataRows.length > 0) {
     console.log('Filter removed all rows — using all rows without filter');
     extracted = dataRows
       .filter(row => (row[0] ?? '').toString().trim() !== '')
-      .map(row => ({
-        itemName:    String(colMap.itemName    !== -1 ? row[colMap.itemName]    : row[0]).trim(),
-        category:    String(colMap.category    !== -1 ? row[colMap.category]    : '').trim(),
-        quantity:    colMap.quantity    !== -1 ? Number(row[colMap.quantity])    || 1 : 1,
-        unitPrice:   colMap.unitPrice   !== -1 ? Number(row[colMap.unitPrice])   || 0 : 0,
-        totalAmount: colMap.totalAmount !== -1 ? Number(row[colMap.totalAmount]) || 0 : 0,
-        taxAmount:   colMap.taxAmount   !== -1 ? Number(row[colMap.taxAmount])   || 0 : 0,
-      }));
+      .map(mapRow);
   }
 
   console.log('Final extracted rows:', extracted.length);
   console.log('Sample:', extracted.slice(0, 3));
 
-  return { rows: extracted, headers, colMap };
+  return { rows: extracted, headers, colMap, reportDate };
 }
 
 function ImportModal({ open, onClose, companyId, onImported }) {
@@ -277,6 +311,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
   const [rows,           setRows]           = useState([]);
   const [selectedRowIds, setSelectedRowIds] = useState(new Set());
   const [mappingInfo,    setMappingInfo]    = useState(null);
+  const [reportDate,     setReportDate]     = useState('');
   const [saving,         setSaving]         = useState(false);
   const [saveErr,        setSaveErr]        = useState('');
   const [savedCount,     setSavedCount]     = useState(null);
@@ -288,8 +323,14 @@ function ImportModal({ open, onClose, companyId, onImported }) {
     if (open) return;
     setStep('upload'); setFile(null); setExtracting(false); setExtractErr('');
     setProgress(''); setRows([]); setSelectedRowIds(new Set()); setMappingInfo(null);
+    setReportDate('');
     setSaving(false); setSaveErr(''); setSavedCount(null);
   }, [open]);
+
+  function applyReportDateToAllRows(dateStr) {
+    setReportDate(dateStr);
+    setRows(prev => prev.map(r => ({ ...r, date: dateStr })));
+  }
 
   function setRowsAndSelect(newRows) {
     setRows(newRows);
@@ -351,22 +392,28 @@ function ImportModal({ open, onClose, companyId, onImported }) {
 
       } else if (isExcel) {
         setProgress('Parsing Excel…');
-        const { rows: extracted, headers, colMap } = await parseExcel(file);
+        const { rows: extracted, headers, colMap, reportDate: detectedDate } = await parseExcel(file);
         if (!extracted.length) throw new Error('No data rows found in this Excel file.');
 
-        // Build mapping info for the preview banner
+        const fallbackDate = detectedDate || today;
+        setReportDate(fallbackDate);
+        console.log('Report date used:', fallbackDate);
+
+        // Build mapping info for the preview banner (skip the date field)
         const mapped  = [];
         const missing = [];
         for (const [field, idx] of Object.entries(colMap)) {
+          if (field === 'date') continue;
           if (idx !== -1) mapped.push(`${FIELD_LABELS[field]} → ${headers[idx]}`);
           else if (field !== 'itemName') missing.push(FIELD_LABELS[field]);
         }
+        if (detectedDate) mapped.push(`Report Date → ${detectedDate}`);
         setMappingInfo({ mapped, missing });
 
-        // Convert extracted rows to preview format
+        // Convert extracted rows to preview format; use per-row date when available
         const previewRows = extracted.map(e => ({
           id:           Math.random().toString(36).slice(2),
-          date:         today,
+          date:         e.date || fallbackDate,
           customerName: 'Walk-in',
           category:     e.category || 'Other',
           lineItems:    [{ itemName: e.itemName || 'Item', quantity: e.quantity, unitPrice: e.unitPrice, gstRate: 0 }],
@@ -652,6 +699,28 @@ function ImportModal({ open, onClose, companyId, onImported }) {
                   className="text-xs underline" style={{ color: 'var(--db-text-3)' }}>
                   Start over
                 </button>
+              </div>
+
+              {/* Report Date picker */}
+              <div className="flex flex-wrap items-center gap-3 rounded-xl px-4 py-3"
+                style={{ background: 'var(--db-card)', border: '1px solid var(--db-border-subtle)' }}>
+                <label className="flex items-center gap-2 text-xs font-medium" style={{ color: 'var(--db-text-2)' }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5 flex-none">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                    <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+                  </svg>
+                  Report Date
+                </label>
+                <input
+                  type="date"
+                  value={reportDate}
+                  onChange={(e) => applyReportDateToAllRows(e.target.value)}
+                  className="rounded-lg px-2 py-1 text-xs outline-none"
+                  style={{ background: 'var(--db-card-inset)', border: '1px solid var(--db-border)', color: 'var(--db-text)', colorScheme: 'dark' }}
+                />
+                <p className="text-xs" style={{ color: 'var(--db-text-3)' }}>
+                  Applied to all rows as sale date
+                </p>
               </div>
 
               {/* Mapping info */}
