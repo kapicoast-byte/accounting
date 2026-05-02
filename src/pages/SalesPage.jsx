@@ -71,36 +71,59 @@ function fmtDate(ts) {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-// Sends headers + 2 sample rows (~100–200 tokens) to Gemini — returns column mapping JSON
-async function geminiMapColumns(sample) {
-  const key = import.meta.env.VITE_GEMINI_API_KEY;
-  if (!key) return {};
-  const prompt = `Restaurant sales report headers and 2 sample rows:\n${sample}\n\nReturn ONLY this JSON with no extra text:\n{"itemName":"?","category":"?","quantity":"?","unitPrice":"?","totalAmount":"?","taxAmount":"?"}\nReplace ? with the matching header name or null.`;
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-      },
-    );
-    if (!res.ok) return {};
-    const data = await res.json();
-    const raw  = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-    const m    = raw.match(/\{[\s\S]*?\}/);
-    if (!m) return {};
-    return JSON.parse(m[0]);
-  } catch {
-    return {};
+// Pure local column mapping — no API calls, works offline
+function mapColumns(headers) {
+  const h = headers.map(x => x?.toLowerCase()?.trim() ?? '');
+  const mapping = {
+    itemName:    headers[h.findIndex(x => ['name','item','item name','product'].includes(x))] || null,
+    category:    headers[h.findIndex(x => ['category','parent_category','type'].includes(x))] || null,
+    quantity:    headers[h.findIndex(x => ['qty','quantity','units','count'].includes(x))] || null,
+    unitPrice:   headers[h.findIndex(x => ['price','rate','unit price','my amount'].includes(x))] || null,
+    totalAmount: headers[h.findIndex(x => ['gross sales','total','amount','grosssales','gross_sales'].includes(x))] || null,
+    taxAmount:   headers[h.findIndex(x => ['tax','gst','tax amount'].includes(x))] || null,
+  };
+  // Fallback: use the first non-empty column as itemName
+  if (!mapping.itemName) {
+    mapping.itemName = headers.find(col => col && String(col).trim()) || null;
   }
+  return mapping;
+}
+
+// Finds tab-separated header row in extracted PDF text
+function findPdfHeaders(fullText) {
+  const lines = fullText.split('\n').map(l => l.trim()).filter(l => l);
+  for (const line of lines) {
+    const cols = line.split('\t').map(c => c.trim()).filter(c => c);
+    if (cols.length >= 3) return cols;
+  }
+  return [];
+}
+
+const FIELD_LABELS = {
+  itemName:    'Item Name',
+  category:    'Category',
+  quantity:    'Quantity',
+  unitPrice:   'Unit Price',
+  totalAmount: 'Total Amount',
+  taxAmount:   'Tax Amount',
+};
+
+function buildMappingInfo(mapping) {
+  const mapped  = [];
+  const missing = [];
+  for (const [field, col] of Object.entries(mapping)) {
+    if (col) mapped.push(`${FIELD_LABELS[field]} → ${col}`);
+    else if (field !== 'itemName') missing.push(FIELD_LABELS[field]);
+  }
+  return { mapped, missing };
 }
 
 // Applies a mapping object to parsed CSV/Excel rows
 function applyMappingToRows(data, mapping, today) {
-  if (!mapping.itemName) return [];
+  const itemCol = mapping.itemName || Object.keys(data[0] || {})[0];
+  if (!itemCol || !data.length) return [];
   return data
-    .filter((row) => row[mapping.itemName])
+    .filter((row) => row[itemCol])
     .map((row) => {
       const qty      = Number(row[mapping.quantity])    || 1;
       const unitPri  = Number(row[mapping.unitPrice])   || 0;
@@ -111,7 +134,7 @@ function applyMappingToRows(data, mapping, today) {
         date:        (mapping.date && row[mapping.date]) ? String(row[mapping.date]).trim() : today,
         customerName:'Walk-in',
         category:    (mapping.category && row[mapping.category]) ? String(row[mapping.category]).trim() : 'Other',
-        lineItems:   [{ itemName: String(row[mapping.itemName] ?? '').trim() || 'Item', quantity: qty, unitPrice: unitPri, gstRate: 0 }],
+        lineItems:   [{ itemName: String(row[itemCol] ?? '').trim() || 'Item', quantity: qty, unitPrice: unitPri, gstRate: 0 }],
         totalAmount: totalAmt,
         taxAmount:   taxAmt,
         paymentMode: 'Cash',
@@ -144,6 +167,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
   const [progress,       setProgress]       = useState('');
   const [rows,           setRows]           = useState([]);
   const [selectedRowIds, setSelectedRowIds] = useState(new Set());
+  const [mappingInfo,    setMappingInfo]    = useState(null);
   const [saving,         setSaving]         = useState(false);
   const [saveErr,        setSaveErr]        = useState('');
   const [savedCount,     setSavedCount]     = useState(null);
@@ -154,7 +178,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
   useEffect(() => {
     if (open) return;
     setStep('upload'); setFile(null); setExtracting(false); setExtractErr('');
-    setProgress(''); setRows([]); setSelectedRowIds(new Set());
+    setProgress(''); setRows([]); setSelectedRowIds(new Set()); setMappingInfo(null);
     setSaving(false); setSaveErr(''); setSavedCount(null);
   }, [open]);
 
@@ -196,9 +220,14 @@ function ImportModal({ open, onClose, companyId, onImported }) {
         const fullText = await extractTextFromPDF(file);
         if (!fullText.trim()) throw new Error('Could not extract text from this PDF. It may be a scanned image.');
 
-        setProgress('AI mapping columns…');
-        const sample  = fullText.trim().slice(0, 500);
-        const mapping = await geminiMapColumns(sample);
+        const pdfHeaders = findPdfHeaders(fullText);
+        console.log('File headers:', pdfHeaders);
+        console.log('Sample row:', fullText.split('\n').filter(l => l.trim()).slice(1, 2));
+        const mapping = mapColumns(pdfHeaders);
+        console.log('Gemini prompt:', '(skipped — local mapping only)');
+        console.log('Gemini raw response:', '(skipped — local mapping only)');
+        console.log('Column mapping result:', mapping);
+        setMappingInfo(buildMappingInfo(mapping));
 
         setProgress('Parsing rows…');
         const parsed = parsePdfRows(fullText, mapping);
@@ -216,12 +245,17 @@ function ImportModal({ open, onClose, companyId, onImported }) {
         if (!data.length) throw new Error('Excel file appears to be empty.');
 
         const headers = Object.keys(data[0]);
-        const sample  = `Headers: ${headers.join(', ')}\nRow1: ${Object.values(data[0]).join(', ')}\nRow2: ${Object.values(data[1] ?? data[0]).join(', ')}`;
-        setProgress('AI mapping columns…');
-        const mapping = await geminiMapColumns(sample);
+        console.log('File headers:', headers);
+        console.log('Sample row:', data[0]);
+        const mapping = mapColumns(headers);
+        console.log('Gemini prompt:', '(skipped — local mapping only)');
+        console.log('Gemini raw response:', '(skipped — local mapping only)');
+        console.log('Column mapping result:', mapping);
+        setMappingInfo(buildMappingInfo(mapping));
 
+        setProgress('Mapping columns…');
         const mapped = applyMappingToRows(data, mapping, today);
-        if (!mapped.length) throw new Error('Could not map columns. Ensure the file has an Item Name column.');
+        if (!mapped.length) throw new Error('Could not map any rows from this file.');
 
         setRowsAndSelect(mapped);
         setStep('preview');
@@ -233,12 +267,17 @@ function ImportModal({ open, onClose, companyId, onImported }) {
         if (!parsed.data.length) throw new Error('CSV file appears to be empty.');
 
         const headers = Object.keys(parsed.data[0]);
-        const sample  = `Headers: ${headers.join(', ')}\nRow1: ${Object.values(parsed.data[0]).join(', ')}\nRow2: ${Object.values(parsed.data[1] ?? parsed.data[0]).join(', ')}`;
-        setProgress('AI mapping columns…');
-        const mapping = await geminiMapColumns(sample);
+        console.log('File headers:', headers);
+        console.log('Sample row:', parsed.data[0]);
+        const mapping = mapColumns(headers);
+        console.log('Gemini prompt:', '(skipped — local mapping only)');
+        console.log('Gemini raw response:', '(skipped — local mapping only)');
+        console.log('Column mapping result:', mapping);
+        setMappingInfo(buildMappingInfo(mapping));
 
+        setProgress('Mapping columns…');
         const mapped = applyMappingToRows(parsed.data, mapping, today);
-        if (!mapped.length) throw new Error('Could not map columns. Ensure the file has an Item Name column.');
+        if (!mapped.length) throw new Error('Could not map any rows from this file.');
 
         setRowsAndSelect(mapped);
         setStep('preview');
@@ -461,7 +500,7 @@ function ImportModal({ open, onClose, companyId, onImported }) {
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
                     <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
                   </svg>
-                  Extract with AI
+                  Extract
                 </button>
               )}
             </div>
@@ -492,6 +531,23 @@ function ImportModal({ open, onClose, companyId, onImported }) {
                   Start over
                 </button>
               </div>
+
+              {/* Mapping info */}
+              {mappingInfo && (
+                <div className="rounded-xl px-4 py-3 space-y-1"
+                  style={{ background: 'var(--db-card)', border: '1px solid var(--db-border-subtle)' }}>
+                  {mappingInfo.mapped.length > 0 && (
+                    <p className="text-xs" style={{ color: 'var(--db-green)' }}>
+                      ✅ Mapped: {mappingInfo.mapped.join(', ')}
+                    </p>
+                  )}
+                  {mappingInfo.missing.length > 0 && (
+                    <p className="text-xs" style={{ color: 'var(--db-amber)' }}>
+                      ⚠️ Could not find: {mappingInfo.missing.join(', ')} (will use defaults)
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Summary bar */}
               <div className="flex flex-wrap gap-2">
