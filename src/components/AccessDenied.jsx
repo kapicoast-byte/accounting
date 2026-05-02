@@ -15,7 +15,8 @@ export default function AccessDenied({ message = "You don't have permission to v
       <button
         type="button"
         onClick={() => navigate(-1)}
-        className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition"
+        className="rounded-md border px-4 py-2 text-sm transition"
+        style={{ background: 'var(--bg-2)', border: '1px solid var(--border)', color: 'var(--fg)' }}
       >
         Go back
       </button>

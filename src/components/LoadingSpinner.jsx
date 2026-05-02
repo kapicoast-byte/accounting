@@ -15,7 +15,7 @@ export default function LoadingSpinner({ size = 'md', fullScreen = false }) {
 
   if (fullScreen) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-white/70 z-50">
+      <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: 'rgba(15,17,23,0.7)' }}>
         {spinner}
       </div>
     );

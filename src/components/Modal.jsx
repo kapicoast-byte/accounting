@@ -25,14 +25,16 @@ export default function Modal({ open, title, onClose, children, footer, size = '
         if (e.target === e.currentTarget) onClose?.();
       }}
     >
-      <div className={`w-full ${widths[size]} rounded-xl shadow-lg ${panelClassName ?? 'bg-white'}`}>
+      <div className={`w-full ${widths[size]} rounded-xl shadow-lg ${panelClassName ?? ''}`}
+        style={!panelClassName ? { background: 'var(--card)', border: '1px solid var(--border)' } : undefined}
+      >
         <div
           className="flex items-center justify-between px-5 py-3"
-          style={{ borderBottom: `1px solid ${dark ? '#374151' : '#e5e7eb'}` }}
+          style={{ borderBottom: '1px solid var(--border)' }}
         >
           <h2
             className="text-base font-semibold"
-            style={{ color: dark ? '#f3f4f6' : '#111827' }}
+            style={{ color: 'var(--fg)' }}
           >
             {title}
           </h2>
@@ -40,7 +42,7 @@ export default function Modal({ open, title, onClose, children, footer, size = '
             type="button"
             onClick={onClose}
             className="rounded-md p-1 transition"
-            style={{ color: dark ? '#6b7280' : '#9ca3af' }}
+            style={{ color: 'var(--fg-3)' }}
             aria-label="Close"
           >
             <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -52,7 +54,7 @@ export default function Modal({ open, title, onClose, children, footer, size = '
         {footer && (
           <div
             className="flex items-center justify-end gap-2 px-5 py-3"
-            style={{ borderTop: `1px solid ${dark ? '#374151' : '#e5e7eb'}` }}
+            style={{ borderTop: '1px solid var(--border)' }}
           >
             {footer}
           </div>

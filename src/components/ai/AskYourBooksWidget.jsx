@@ -256,7 +256,7 @@ export default function AskYourBooksWidget({ dashboardSnapshot }) {
           />
 
           {/* Panel */}
-          <div className="relative flex w-full max-w-md flex-col rounded-2xl bg-white shadow-2xl"
+          <div className="relative flex w-full max-w-md flex-col rounded-2xl shadow-2xl" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
             style={{ height: '520px' }}
           >
             {/* Header */}
