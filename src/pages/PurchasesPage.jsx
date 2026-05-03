@@ -183,6 +183,7 @@ export default function PurchasesPage() {
                   <th className="px-4 py-2 text-right">Balance</th>
                   <th className="px-4 py-2">Mode</th>
                   <th className="px-4 py-2">Status</th>
+                  <th className="px-4 py-2 w-6" title="Bill scan"></th>
                   <th className="px-4 py-2"></th>
                 </tr>
               </thead>
@@ -209,6 +210,22 @@ export default function PurchasesPage() {
                     </td>
                     <td className="px-4 py-2 text-xs text-gray-600">{p.paymentMode}</td>
                     <td className="px-4 py-2"><PaymentStatusBadge status={p.status} /></td>
+                    <td className="px-4 py-2">
+                      {p.billImageUrl && (
+                        <button
+                          type="button"
+                          title="View scanned bill"
+                          onClick={() => window.open(p.billImageUrl, '_blank')}
+                          className="rounded p-1 transition hover:opacity-70"
+                          style={{ color: 'var(--info)' }}
+                        >
+                          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z" />
+                          </svg>
+                        </button>
+                      )}
+                    </td>
                     <td className="px-4 py-2">
                       <div className="flex justify-end gap-2 text-xs">
                         <Link to={`/purchases/${p.purchaseId}`}
