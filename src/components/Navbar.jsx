@@ -305,7 +305,7 @@ export default function Navbar() {
       {/* Logo + Company switcher */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
         <Link to="/dashboard" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
-          <img src="/balance-logo.png" alt="Balance" style={{ height: 32, width: 'auto' }} />
+          <img src="/balance-logo.png" alt="Balance" className="navbar-logo" style={{ height: 32, width: 'auto', borderRadius: 6, mixBlendMode: 'lighten' }} />
         </Link>
         <CompanySwitcher />
       </div>
@@ -323,15 +323,6 @@ export default function Navbar() {
             {link.label}
           </NavLink>
         ))}
-
-        {(salesEntryMode === 'Document Upload' || salesEntryMode === 'Both') && (
-          <NavLink
-            to="/sales/import"
-            style={({ isActive }) => navLinkStyle(isActive)}
-          >
-            Import Sales
-          </NavLink>
-        )}
 
         <NavDropdown
           label="Accounts"

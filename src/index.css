@@ -125,6 +125,14 @@ label {
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 3px; }
 
+/* ── Navbar logo: neutralise white background on dark nav ── */
+.navbar-logo {
+  height: 32px;
+  width: auto;
+  border-radius: 6px;
+  mix-blend-mode: lighten;
+}
+
 /* ── Override Tailwind light-mode utilities globally ── */
 .bg-white                    { background: var(--card)    !important; }
 .bg-gray-50                  { background: var(--bg-2)    !important; }
