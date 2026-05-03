@@ -11,6 +11,7 @@ import PaymentStatusBadge from '../components/sales/PaymentStatusBadge';
 import PayablePaymentModal from '../components/purchases/PayablePaymentModal';
 import DeleteRecordModal from '../components/DeleteRecordModal';
 import BulkDeleteModal from '../components/BulkDeleteModal';
+import PurchaseImportModal from '../components/purchases/PurchaseImportModal';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All statuses' },
@@ -41,6 +42,7 @@ export default function PurchasesPage() {
   const [deleteTarget,   setDeleteTarget]   = useState(null);
   const [selectedIds,    setSelectedIds]    = useState(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [importOpen,     setImportOpen]     = useState(false);
 
   const load = useCallback(async () => {
     if (!activeCompanyId) return;
@@ -109,10 +111,17 @@ export default function PurchasesPage() {
           <p className="text-sm text-gray-500">All vendor bills for the active company.</p>
         </div>
         <RoleGuard permission="edit">
-          <Link to="/purchases/new"
-            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700">
-            + New purchase
-          </Link>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setImportOpen(true)}
+              className="rounded-md px-3 py-1.5 text-sm font-semibold transition"
+              style={{ background: 'var(--pos-soft)', border: '1px solid var(--pos)', color: 'var(--pos)' }}>
+              ↑ Import Purchases
+            </button>
+            <Link to="/purchases/new"
+              className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700">
+              + New purchase
+            </Link>
+          </div>
         </RoleGuard>
       </div>
 
@@ -290,6 +299,13 @@ export default function PurchasesPage() {
         records={selectedRecords}
         recordType="purchase"
         user={user}
+      />
+
+      <PurchaseImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        companyId={activeCompanyId}
+        onImported={load}
       />
     </div>
   );
