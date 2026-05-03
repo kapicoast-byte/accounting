@@ -304,11 +304,8 @@ export default function Navbar() {
     >
       {/* Logo + Company switcher */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-        <Link
-          to="/dashboard"
-          style={{ fontSize: 16, fontWeight: 700, color: 'var(--fg)', textDecoration: 'none', letterSpacing: '-0.01em' }}
-        >
-          SmartBooks
+        <Link to="/dashboard" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
+          <img src="/balance-logo.png" alt="Balance" style={{ height: 32, width: 'auto' }} />
         </Link>
         <CompanySwitcher />
       </div>

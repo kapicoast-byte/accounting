@@ -201,7 +201,7 @@ export default function ReportsPage() {
         {summary && !loading && (
           <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50 p-5">
             <div className="flex items-center gap-2 mb-3">
-              <span className="text-blue-600 font-semibold text-sm">SmartBooks AI</span>
+              <span className="text-blue-600 font-semibold text-sm">Balance AI</span>
               <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">This Month</span>
             </div>
             <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{summary}</p>

@@ -41,7 +41,7 @@ export function generateInvoicePDF(sale, company) {
   let y      = 14;
 
   // ── COMPANY HEADER (left) + INVOICE META (right) ─────────────────────────
-  const companyName = company?.companyName ?? 'SmartBooks';
+  const companyName = company?.companyName ?? 'Balance';
   doc.setFontSize(15);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...TEXT);

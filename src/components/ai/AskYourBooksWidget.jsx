@@ -115,7 +115,7 @@ export default function AskYourBooksWidget({ dashboardSnapshot }) {
         setMessages([
           {
             role: 'assistant',
-            content: "Hi! I'm SmartBooks AI. Ask me anything about your business — sales, expenses, stock, receivables, and more.",
+            content: "Hi! I'm Balance AI. Ask me anything about your business — sales, expenses, stock, receivables, and more.",
           },
         ]);
       }

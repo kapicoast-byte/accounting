@@ -26,7 +26,7 @@ export default function InvoicePrintLayout({ sale, company }) {
       {/* Header */}
       <div className="mb-6 flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{company?.companyName ?? 'SmartBooks'}</h1>
+          <h1 className="text-2xl font-bold text-gray-900">{company?.companyName ?? 'Balance'}</h1>
           {company?.address && <p className="mt-0.5 text-xs text-gray-500">{company.address}</p>}
           {company?.GSTIN  && <p className="text-xs text-gray-500">GSTIN: {company.GSTIN}</p>}
           {company?.phone  && <p className="text-xs text-gray-500">Ph: {company.phone}</p>}

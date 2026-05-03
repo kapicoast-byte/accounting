@@ -158,7 +158,7 @@ export function generateInvoiceHTML(sale, company) {
   <!-- Header -->
   <div class="header">
     <div>
-      <div class="company-name">${esc(company?.companyName ?? 'SmartBooks')}</div>
+      <div class="company-name">${esc(company?.companyName ?? 'Balance')}</div>
       <div class="company-meta">
         ${company?.address ? `<div>${esc(company.address)}</div>` : ''}
         ${company?.GSTIN   ? `<div>GSTIN: ${esc(company.GSTIN)}</div>` : ''}
