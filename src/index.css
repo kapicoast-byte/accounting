@@ -152,6 +152,27 @@ label {
 .border-gray-300             { border-color: var(--border-2) !important; }
 .divide-gray-200 > * + *     { border-color: var(--border)   !important; }
 
+/* ── Sidebar / layout ── */
+.sidebar-wrapper {
+  transition: width 0.2s ease, transform 0.2s ease;
+}
+
+@media (max-width: 767px) {
+  .sidebar-wrapper {
+    transform: translateX(-100%);
+    width: 240px !important;
+  }
+  .sidebar-wrapper.mobile-open {
+    transform: translateX(0);
+  }
+  .main-content {
+    margin-left: 0 !important;
+  }
+  .topbar-burger {
+    display: flex !important;
+  }
+}
+
 /* ── Print: restore white for invoice ── */
 @media print {
   body > #root > * { display: none !important; }
