@@ -19,6 +19,7 @@ function Ic({ d, size = 16 }) {
 }
 
 const ICONS = {
+  bank:        ['M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z', 'M9 22V12h6v10'],
   dashboard:   ['M3 3h7v7H3z', 'M14 3h7v7h-7z', 'M14 14h7v7h-7z', 'M3 14h7v7H3z'],
   sales:       ['M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2', 'M9 5a2 2 0 012-2h2a2 2 0 012 2 2 2 0 01-2 2h-2a2 2 0 01-2-2z', 'M9 12h6M9 16h4'],
   purchases:   ['M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4H6z', 'M3 6h18', 'M16 10a4 4 0 01-8 0'],
@@ -227,8 +228,9 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
         <NavItem to="/inventory"  iconKey="inventory"  label="Inventory"  collapsed={collapsed} onClick={onMobileClose} />
 
         <SectionLabel label="Finance" collapsed={collapsed} />
-        <NavItem to="/payables"      iconKey="payables"  label="Payables"          collapsed={collapsed} onClick={onMobileClose} />
-        <NavItem to="/accounts"      iconKey="accounts"  label="Chart of Accounts" collapsed={collapsed} onClick={onMobileClose} />
+        <NavItem to="/payables"          iconKey="payables"  label="Payables"          collapsed={collapsed} onClick={onMobileClose} />
+        <NavItem to="/accounts/banks"    iconKey="bank"      label="Bank Accounts"     collapsed={collapsed} onClick={onMobileClose} />
+        <NavItem to="/accounts"          iconKey="accounts"  label="Chart of Accounts" collapsed={collapsed} onClick={onMobileClose} />
         <NavItem to="/ledger"        iconKey="ledger"    label="Ledger"            collapsed={collapsed} onClick={onMobileClose} />
         <NavItem to="/journal"       iconKey="journal"   label="Journal"           collapsed={collapsed} onClick={onMobileClose} />
         <NavItem to="/trial-balance" iconKey="trialbal"  label="Trial Balance"     collapsed={collapsed} onClick={onMobileClose} />

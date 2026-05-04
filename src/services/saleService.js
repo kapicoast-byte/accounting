@@ -65,7 +65,7 @@ function formatInvoiceNumber(year, count) {
 
 // ─── create sale (transaction) ───────────────────────────────────────────────
 
-export async function createSale(companyId, { customer, lineItems, discountType, discountValue, paymentMode, date, dueDate, notes, tableNumber, orderType, entrySource = 'pos' }) {
+export async function createSale(companyId, { customer, lineItems, discountType, discountValue, paymentMode, date, dueDate, notes, tableNumber, orderType, entrySource = 'pos', bankAccountId = null }) {
   // Direct inventory deductions (standard sales — itemId is a real inventory doc)
   const inventoryLines = lineItems.filter((l) => l.itemId && l.itemId !== 'custom' && !l.ingredientDeductions?.length);
 
@@ -180,10 +180,11 @@ export async function createSale(companyId, { customer, lineItems, discountType,
       paidAmount,
       balanceDue,
       status,
-      notes:       notes ?? '',
-      tableNumber: tableNumber ?? null,
-      orderType:   orderType   ?? null,
-      entrySource: entrySource ?? 'pos',
+      notes:         notes ?? '',
+      tableNumber:   tableNumber   ?? null,
+      orderType:     orderType     ?? null,
+      entrySource:   entrySource   ?? 'pos',
+      bankAccountId: bankAccountId ?? null,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
@@ -338,9 +339,10 @@ export async function createFnbSale(companyId, { customer, lineItems, discountTy
       paidAmount,
       balanceDue,
       status,
-      notes:       notes ?? '',
-      tableNumber: tableNumber ?? null,
-      orderType:   orderType   ?? null,
+      notes:         notes         ?? '',
+      tableNumber:   tableNumber   ?? null,
+      orderType:     orderType     ?? null,
+      bankAccountId: bankAccountId ?? null,
       createdAt:   serverTimestamp(),
       updatedAt:   serverTimestamp(),
     };

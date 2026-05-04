@@ -11,6 +11,7 @@ const ROUTE_TITLES = {
   '/expenses/new':        'New Expense',
   '/inventory':           'Inventory',
   '/payables':            'Payables',
+  '/accounts/banks':      'Bank Accounts',
   '/accounts':            'Chart of Accounts',
   '/ledger':              'Ledger',
   '/journal':             'Journal',

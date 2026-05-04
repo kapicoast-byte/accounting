@@ -58,7 +58,7 @@ function formatBillNumber(year, count) {
 
 // ─── create purchase (transaction) ───────────────────────────────────────────
 
-export async function createPurchase(companyId, { vendor, lineItems, discountType, discountValue, paymentMode, date, dueDate, notes, vendorBillNumber }) {
+export async function createPurchase(companyId, { vendor, lineItems, discountType, discountValue, paymentMode, date, dueDate, notes, vendorBillNumber, bankAccountId = null }) {
   const inventoryLines = lineItems.filter((l) => l.itemId && l.itemId !== 'custom');
   const totals = computePurchaseTotals({ lineItems, discountType, discountValue });
   const isPaid = paymentMode !== 'Credit';
@@ -126,7 +126,8 @@ export async function createPurchase(companyId, { vendor, lineItems, discountTyp
       paidAmount,
       balanceDue,
       status,
-      notes:     notes ?? '',
+      notes:         notes ?? '',
+      bankAccountId: bankAccountId ?? null,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };

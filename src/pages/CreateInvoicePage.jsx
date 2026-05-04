@@ -6,6 +6,7 @@ import { listInventoryItems } from '../services/inventoryService';
 import { listMenuItems } from '../services/menuItemService';
 import { BUSINESS_TYPES } from '../services/companyService';
 import { createSale, computeInvoiceTotals, PAYMENT_MODES } from '../services/saleService';
+import BankAccountSelector from '../components/banks/BankAccountSelector';
 import { formatCurrency } from '../utils/format';
 import LoadingSpinner from '../components/LoadingSpinner';
 import CustomerSelector from '../components/sales/CustomerSelector';
@@ -116,6 +117,7 @@ function StandardInvoiceForm({ inventoryItems, mode, businessType }) {
   const [invoiceDate, setInvoiceDate]   = useState(todayStr);
   const [dueDate, setDueDate]           = useState(futureDateStr());
   const [paymentMode, setPaymentMode]   = useState('Cash');
+  const [bankAccountId, setBankAccountId] = useState(null);
   const [notes, setNotes]               = useState('');
   const [lineItems, setLineItems]       = useState(() => {
     if (mode === 'services')      return [newServiceLineItem()];
@@ -169,6 +171,7 @@ function StandardInvoiceForm({ inventoryItems, mode, businessType }) {
         date:    invoiceDate,
         dueDate: isCredit ? dueDate : null,
         notes,
+        bankAccountId: (!isCredit && paymentMode !== 'Cash') ? (bankAccountId ?? null) : null,
       });
       navigate(`/sales/${saleId}`, { replace: true });
     } catch (err) {
@@ -247,6 +250,15 @@ function StandardInvoiceForm({ inventoryItems, mode, businessType }) {
                 className="mt-1 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
               <p className="text-xs text-amber-600">Credit — full amount will be outstanding.</p>
             </div>
+          )}
+
+          {!isCredit && paymentMode !== 'Cash' && (
+            <BankAccountSelector
+              companyId={activeCompanyId}
+              value={bankAccountId}
+              onChange={setBankAccountId}
+              label="Received in bank account"
+            />
           )}
 
           {mode === 'services' && (

@@ -13,6 +13,7 @@ import FormField from '../components/FormField';
 import VendorSelector from '../components/purchases/VendorSelector';
 import PurchaseLineItemEditor, { newPurchaseLineItem } from '../components/purchases/PurchaseLineItemEditor';
 import BillScanModal from '../components/purchases/BillScanModal';
+import BankAccountSelector from '../components/banks/BankAccountSelector';
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 function futureStr(days = 30) {
@@ -38,6 +39,7 @@ export default function CreatePurchasePage() {
   const [discountType, setDiscountType]   = useState('flat');
   const [discountValue, setDiscountValue] = useState('0');
 
+  const [bankAccountId, setBankAccountId] = useState(null);
   const [submitting, setSubmitting]       = useState(false);
   const [serverError, setServerError]     = useState('');
 
@@ -161,6 +163,7 @@ export default function CreatePurchasePage() {
         paymentMode, date: billDate,
         dueDate: isCredit ? dueDate : null,
         notes, vendorBillNumber,
+        bankAccountId: (!isCredit && paymentMode !== 'Cash') ? (bankAccountId ?? null) : null,
       });
 
       // Upload bill image if user scanned one
@@ -285,6 +288,15 @@ export default function CreatePurchasePage() {
               <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} min={billDate} />
               <p className="text-xs" style={{ color: 'var(--warn)' }}>Credit — full amount will become outstanding payable.</p>
             </div>
+          )}
+
+          {!isCredit && paymentMode !== 'Cash' && (
+            <BankAccountSelector
+              companyId={activeCompanyId}
+              value={bankAccountId}
+              onChange={setBankAccountId}
+              label="Paid from bank account"
+            />
           )}
 
           <div className="sm:col-span-2 lg:col-span-3 flex flex-col gap-1" style={aiRing('notes')}>

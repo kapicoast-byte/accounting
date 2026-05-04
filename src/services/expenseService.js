@@ -38,7 +38,7 @@ export async function listExpenses(companyId, { fromDate, toDate } = {}) {
   return snap.docs.map((d) => ({ expenseId: d.id, ...d.data() }));
 }
 
-export async function createExpense(companyId, { date, category, amount, paidBy, payee = '', notes = '' }) {
+export async function createExpense(companyId, { date, category, amount, paidBy, payee = '', notes = '', bankAccountId = null }) {
   if (!category) throw new Error('Category is required.');
   const amt = Number(amount);
   if (!Number.isFinite(amt) || amt <= 0) throw new Error('Amount must be greater than 0.');
@@ -48,14 +48,15 @@ export async function createExpense(companyId, { date, category, amount, paidBy,
   const batch = writeBatch(db);
 
   batch.set(expenseRef, {
-    date:      Timestamp.fromDate(new Date(date)),
+    date:          Timestamp.fromDate(new Date(date)),
     category,
-    amount:    amt,
+    amount:        amt,
     paidBy,
-    payee:     payee.trim(),
-    notes:     notes.trim(),
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+    payee:         payee.trim(),
+    notes:         notes.trim(),
+    bankAccountId: bankAccountId ?? null,
+    createdAt:     serverTimestamp(),
+    updatedAt:     serverTimestamp(),
   });
 
   batch.set(journalRef, buildJournalEntry({
@@ -81,7 +82,8 @@ export async function updateExpense(companyId, expenseId, updates) {
   if (updates.amount   !== undefined) payload.amount   = Number(updates.amount);
   if (updates.paidBy   !== undefined) payload.paidBy   = updates.paidBy;
   if (updates.payee    !== undefined) payload.payee    = updates.payee.trim();
-  if (updates.notes    !== undefined) payload.notes    = updates.notes.trim();
+  if (updates.notes         !== undefined) payload.notes         = updates.notes.trim();
+  if (updates.bankAccountId !== undefined) payload.bankAccountId = updates.bankAccountId ?? null;
   await updateDoc(expenseDoc(companyId, expenseId), payload);
 }
 

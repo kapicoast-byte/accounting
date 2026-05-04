@@ -5,6 +5,7 @@ import LoadingSpinner from '../LoadingSpinner';
 import { createExpense, updateExpense } from '../../services/expenseService';
 import { EXPENSE_CATEGORIES, EXPENSE_PAID_BY } from '../../utils/expenseConstants';
 import { toJsDate } from '../../utils/dateUtils';
+import BankAccountSelector from '../banks/BankAccountSelector';
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -14,9 +15,9 @@ function dateInputValue(ts) {
   return d ? d.toISOString().slice(0, 10) : todayStr();
 }
 
-const EMPTY = { date: '', category: 'Rent', amount: '', paidBy: 'Cash', payee: '', notes: '' };
+const EMPTY = { date: '', category: 'Rent', amount: '', paidBy: 'Cash', payee: '', notes: '', bankAccountId: null };
 
-export default function ExpenseModal({ open, companyId, expense, onClose, onSaved }) {
+export default function ExpenseModal({ open, companyId, expense, onClose, onSaved, activeCompanyId }) {
   const isEdit = !!expense;
   const [form, setForm] = useState(EMPTY);
   const [errors, setErrors] = useState({});
@@ -33,6 +34,7 @@ export default function ExpenseModal({ open, companyId, expense, onClose, onSave
         paidBy: expense.paidBy ?? 'Cash',
         payee: expense.payee ?? '',
         notes: expense.notes ?? '',
+        bankAccountId: expense.bankAccountId ?? null,
       });
     } else {
       setForm({ ...EMPTY, date: todayStr() });
@@ -126,6 +128,15 @@ export default function ExpenseModal({ open, companyId, expense, onClose, onSave
             ))}
           </div>
         </div>
+
+        {form.paidBy === 'Bank' && (
+          <BankAccountSelector
+            companyId={companyId ?? activeCompanyId}
+            value={form.bankAccountId}
+            onChange={(id) => setForm((p) => ({ ...p, bankAccountId: id }))}
+            label="From bank account"
+          />
+        )}
 
         <div className="sm:col-span-2">
           <FormField label="Payee / description" id="exp-payee" name="payee"
