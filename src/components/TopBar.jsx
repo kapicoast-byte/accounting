@@ -5,6 +5,7 @@ const ROUTE_TITLES = {
   '/dashboard':           'Dashboard',
   '/sales':               'Sales',
   '/sales/new':           'New Sale',
+  '/sales/import':        'Sales Reports',
   '/purchases':           'Purchases',
   '/purchases/new':       'New Purchase',
   '/expenses':            'Expenses',

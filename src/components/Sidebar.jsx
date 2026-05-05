@@ -19,6 +19,7 @@ function Ic({ d, size = 16 }) {
 }
 
 const ICONS = {
+  dailyrep:    ['M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4', 'M17 8l-5-5-5 5', 'M12 3v12'],
   reconcile:   ['M9 11l3 3L22 4', 'M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11'],
   bank:        ['M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z', 'M9 22V12h6v10'],
   dashboard:   ['M3 3h7v7H3z', 'M14 3h7v7h-7z', 'M14 14h7v7h-7z', 'M3 14h7v7H3z'],
@@ -223,7 +224,8 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
 
         <SectionLabel label="Main" collapsed={collapsed} />
         <NavItem to="/dashboard"  iconKey="dashboard"  label="Dashboard"  collapsed={collapsed} end onClick={onMobileClose} />
-        <NavItem to="/sales"      iconKey="sales"      label="Sales"      collapsed={collapsed} onClick={onMobileClose} />
+        <NavItem to="/sales"        iconKey="sales"    label="Sales"         collapsed={collapsed} end onClick={onMobileClose} />
+        <NavItem to="/sales/import" iconKey="dailyrep" label="Sales Reports"  collapsed={collapsed} onClick={onMobileClose} />
         <NavItem to="/purchases"  iconKey="purchases"  label="Purchases"  collapsed={collapsed} onClick={onMobileClose} />
         <NavItem to="/expenses"   iconKey="expenses"   label="Expenses"   collapsed={collapsed} onClick={onMobileClose} />
         <NavItem to="/inventory"  iconKey="inventory"  label="Inventory"  collapsed={collapsed} onClick={onMobileClose} />

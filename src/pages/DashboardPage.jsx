@@ -1,3 +1,29 @@
+import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import { listDailyReports } from '../services/dailySalesReportService';
+
+function useMissingSalesCount(companyId) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!companyId) return;
+    const d    = new Date();
+    const year = d.getFullYear();
+    const mon  = String(d.getMonth() + 1).padStart(2, '0');
+    const from = `${year}-${mon}-01`;
+    const to   = `${year}-${mon}-${String(d.getDate()).padStart(2, '0')}`;
+    listDailyReports(companyId, { fromDate: from, toDate: to }).then((list) => {
+      const uploaded = new Set(list.map((r) => r.date));
+      let missing = 0;
+      for (let i = 1; i <= d.getDate(); i++) {
+        const ds = `${year}-${mon}-${String(i).padStart(2, '0')}`;
+        if (!uploaded.has(ds)) missing++;
+      }
+      setCount(missing);
+    }).catch(() => {});
+  }, [companyId]);
+  return count;
+}
+
 function RefreshCw({ size = 14, className = '' }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
@@ -26,6 +52,7 @@ const TODAY = new Date().toLocaleDateString('en-IN', {
 
 export default function DashboardPage() {
   const { activeCompany, activeCompanyId, isConsolidated, consolidatedIds, companies } = useApp();
+  const missingSalesCount = useMissingSalesCount(activeCompanyId);
   const { data, loading, error, refresh } = useDashboard({
     companyId: activeCompanyId,
     isConsolidated,
@@ -83,6 +110,25 @@ export default function DashboardPage() {
         <div style={{ borderRadius: 'var(--radius-sm)', border: '1px solid var(--neg)', background: 'var(--neg-soft)', padding: '10px 14px', fontSize: 13, color: 'var(--neg)' }}>
           {error}
         </div>
+      )}
+
+      {/* ── Missing sales alert ── */}
+      {missingSalesCount > 0 && (
+        <Link to="/sales/import" style={{ textDecoration: 'none' }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            borderRadius: 'var(--radius-sm)', border: '1px solid #f59e0b',
+            background: '#fffbeb', padding: '10px 16px', fontSize: 13,
+            color: '#b45309', cursor: 'pointer',
+          }}>
+            <span style={{ fontSize: 16 }}>⚠️</span>
+            <span>
+              <strong>{missingSalesCount} day{missingSalesCount !== 1 ? 's' : ''} missing sales data</strong>
+              {' '}this month —{' '}
+              <span style={{ textDecoration: 'underline' }}>click to upload</span>
+            </span>
+          </div>
+        </Link>
       )}
 
       {/* ── Row 1: 4 stat cards ── */}
