@@ -1,10 +1,35 @@
+import {
+  collection, addDoc, getDocs, query, orderBy, serverTimestamp,
+} from 'firebase/firestore';
+import { db } from './firebase';
 import { listSales } from './saleService';
 import { listPurchases } from './purchaseService';
 import { listExpenses } from './expenseService';
 import { startOfDay, endOfDay, toJsDate } from '../utils/dateUtils';
 
+// ── Reconciliation sessions collection ────────────────────────────────────────
+
+function reconCol(companyId) {
+  return collection(db, 'companies', companyId, 'reconciliations');
+}
+
+export async function saveReconciliationSession(companyId, data) {
+  const ref = await addDoc(reconCol(companyId), {
+    ...data,
+    createdAt: serverTimestamp(),
+  });
+  return { sessionId: ref.id };
+}
+
+export async function listReconciliationSessions(companyId) {
+  const q = query(reconCol(companyId), orderBy('createdAt', 'desc'));
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ sessionId: d.id, ...d.data() }));
+}
+
+// ── Financial records loader ───────────────────────────────────────────────────
+
 export async function loadRecordsForPeriod(companyId, fromDate, toDate) {
-  // Expand by 3 days on each side to cover matching tolerance
   const from = new Date(fromDate);
   from.setDate(from.getDate() - 3);
   const to = new Date(toDate);
@@ -18,6 +43,8 @@ export async function loadRecordsForPeriod(companyId, fromDate, toDate) {
 
   return { sales, purchases, expenses };
 }
+
+// ── Matching logic ─────────────────────────────────────────────────────────────
 
 function amountMatch(a, b, pct = 0.02) {
   const max = Math.max(Math.abs(a), Math.abs(b));
