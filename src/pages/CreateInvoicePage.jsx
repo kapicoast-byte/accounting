@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { listCustomers } from '../services/customerService';
 import { listInventoryItems } from '../services/inventoryService';
@@ -109,12 +109,13 @@ function TotalsPanel({ totals, discountType, discountValue, onDiscountTypeChange
 
 function StandardInvoiceForm({ inventoryItems, mode, businessType }) {
   const navigate = useNavigate();
+  const { state } = useLocation();
   const { activeCompanyId } = useApp();
 
   const [customers, setCustomers]       = useState([]);
   const [loadingCust, setLoadingCust]   = useState(true);
   const [customer, setCustomer]         = useState(null);
-  const [invoiceDate, setInvoiceDate]   = useState(todayStr);
+  const [invoiceDate, setInvoiceDate]   = useState(state?.prefill?.date ?? todayStr());
   const [dueDate, setDueDate]           = useState(futureDateStr());
   const [paymentMode, setPaymentMode]   = useState('Cash');
   const [bankAccountId, setBankAccountId] = useState(null);

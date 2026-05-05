@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { doc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../services/firebase';
@@ -23,6 +23,7 @@ function futureStr(days = 30) {
 
 export default function CreatePurchasePage() {
   const navigate = useNavigate();
+  const { state } = useLocation();
   const { activeCompanyId, taxLabel } = useApp();
 
   const [vendors, setVendors]             = useState([]);
@@ -31,7 +32,7 @@ export default function CreatePurchasePage() {
 
   const [vendor, setVendor]               = useState(null);
   const [vendorBillNumber, setVendorBillNumber] = useState('');
-  const [billDate, setBillDate]           = useState(todayStr);
+  const [billDate, setBillDate]           = useState(state?.prefill?.date ?? todayStr());
   const [dueDate, setDueDate]             = useState(futureStr());
   const [paymentMode, setPaymentMode]     = useState('Cash');
   const [notes, setNotes]                 = useState('');

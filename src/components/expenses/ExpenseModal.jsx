@@ -17,7 +17,7 @@ function dateInputValue(ts) {
 
 const EMPTY = { date: '', category: 'Rent', amount: '', paidBy: 'Cash', payee: '', notes: '', bankAccountId: null };
 
-export default function ExpenseModal({ open, companyId, expense, onClose, onSaved, activeCompanyId }) {
+export default function ExpenseModal({ open, companyId, expense, onClose, onSaved, activeCompanyId, prefill }) {
   const isEdit = !!expense;
   const [form, setForm] = useState(EMPTY);
   const [errors, setErrors] = useState({});
@@ -37,11 +37,11 @@ export default function ExpenseModal({ open, companyId, expense, onClose, onSave
         bankAccountId: expense.bankAccountId ?? null,
       });
     } else {
-      setForm({ ...EMPTY, date: todayStr() });
+      setForm({ ...EMPTY, date: todayStr(), ...(prefill ?? {}) });
     }
     setErrors({});
     setServerError('');
-  }, [open, expense]);
+  }, [open, expense, prefill]);
 
   function handleChange(e) {
     const { name, value } = e.target;
