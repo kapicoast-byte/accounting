@@ -60,13 +60,14 @@ function NavItem({ to, iconKey, label, collapsed, badge, end = false, onClick })
         gap: 10,
         padding: collapsed ? '9px 0' : '8px 12px',
         justifyContent: collapsed ? 'center' : 'flex-start',
-        borderRadius: 8,
+        borderRadius: isActive && !collapsed ? '0 8px 8px 0' : 8,
         color: isActive ? 'var(--pos)' : 'var(--fg-3)',
         background: isActive ? 'var(--pos-soft)' : 'transparent',
+        boxShadow: isActive && !collapsed ? 'inset 3px 0 0 var(--pos)' : 'none',
         textDecoration: 'none',
         fontSize: 13.5,
-        fontWeight: 500,
-        transition: 'background 0.15s, color 0.15s',
+        fontWeight: isActive ? 600 : 500,
+        transition: 'background 0.15s, color 0.15s, box-shadow 0.15s',
         overflow: 'hidden',
         whiteSpace: 'nowrap',
         position: 'relative',
@@ -90,21 +91,43 @@ function NavItem({ to, iconKey, label, collapsed, badge, end = false, onClick })
   );
 }
 
-// ── Section label ──────────────────────────────────────────────────────────────
+// ── Section header (collapsible) ───────────────────────────────────────────────
 
-function SectionLabel({ label, collapsed }) {
+function SectionHeader({ label, open, onToggle, collapsed }) {
   if (collapsed) {
-    return <div style={{ height: 1, margin: '8px 10px', background: 'var(--border)' }} />;
+    return <div style={{ height: 1, margin: '6px 4px', background: 'var(--border)' }} />;
   }
   return (
-    <p style={{
-      padding: '14px 12px 4px', margin: 0,
-      fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
-      letterSpacing: '0.1em', color: 'var(--fg-4)',
-    }}>
-      {label}
-    </p>
+    <button
+      type="button"
+      onClick={onToggle}
+      style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        width: '100%', padding: '12px 12px 4px',
+        background: 'transparent', border: 'none', cursor: 'pointer',
+        color: 'var(--fg-4)',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--fg-2)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--fg-4)'; }}
+    >
+      <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+        {label}
+      </span>
+      <svg width={12} height={12} viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+        style={{ transform: open ? 'none' : 'rotate(-90deg)', transition: 'transform 0.2s', flexShrink: 0 }}>
+        <path d="M6 9l6 6 6-6" />
+      </svg>
+    </button>
   );
+}
+
+// ── Section state (localStorage) ───────────────────────────────────────────────
+
+const SECTIONS_LS = 'sidebar-sections-v1';
+
+function loadSections() {
+  try { return JSON.parse(localStorage.getItem(SECTIONS_LS)) ?? {}; } catch { return {}; }
 }
 
 // ── Main sidebar ───────────────────────────────────────────────────────────────
@@ -115,6 +138,25 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
   const { role, isAdmin }                        = useRole();
 
   const [monthCount, setMonthCount] = useState(null);
+
+  // Collapsible section state — default: main open, others closed
+  const [sections, setSections] = useState(() => {
+    const saved = loadSections();
+    return {
+      main:    saved.main    !== undefined ? saved.main    : true,
+      finance: saved.finance !== undefined ? saved.finance : false,
+      fnb:     saved.fnb     !== undefined ? saved.fnb     : false,
+      admin:   saved.admin   !== undefined ? saved.admin   : false,
+    };
+  });
+
+  function toggleSection(key) {
+    setSections((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem(SECTIONS_LS, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (!activeCompanyId) return;
@@ -128,8 +170,10 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
 
   const isFnB = businessType === 'F&B' || businessType === 'Mixed';
 
-  const initials = (user?.displayName ?? '?')
-    .split(' ').filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
+  const initials = (user?.displayName ?? user?.email ?? '?')
+    .split(/[\s@]/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
+
+  const displayName = user?.displayName || user?.email?.split('@')[0] || 'User';
 
   const deletionBadge = monthCount > 0 ? (
     <span style={{
@@ -142,6 +186,9 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
   ) : null;
 
   const W = collapsed ? 60 : 240;
+
+  // In collapsed mode always show all items (section headers are just dividers)
+  const show = (key) => collapsed || sections[key];
 
   return (
     <aside
@@ -198,8 +245,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             width: 28, height: 28, borderRadius: 6, border: 'none',
             background: 'transparent', color: 'var(--fg-4)', cursor: 'pointer',
-            flexShrink: 0,
-            transition: 'background 0.15s',
+            flexShrink: 0, transition: 'background 0.15s',
           }}
           onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; e.currentTarget.style.color = 'var(--fg-2)'; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--fg-4)'; }}
@@ -220,71 +266,93 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
       )}
 
       {/* Nav */}
-      <nav style={{ flex: 1, padding: collapsed ? '8px 6px' : '8px 8px', display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <nav style={{ flex: 1, padding: collapsed ? '8px 6px' : '8px 8px', display: 'flex', flexDirection: 'column', gap: 1, overflowY: 'auto', scrollbarWidth: 'none' }}>
 
-        <SectionLabel label="Main" collapsed={collapsed} />
-        <NavItem to="/dashboard"  iconKey="dashboard"  label="Dashboard"  collapsed={collapsed} end onClick={onMobileClose} />
-        <NavItem to="/sales"        iconKey="sales"    label="Sales"         collapsed={collapsed} end onClick={onMobileClose} />
-        <NavItem to="/sales/import" iconKey="dailyrep" label="Sales Reports"  collapsed={collapsed} onClick={onMobileClose} />
-        <NavItem to="/purchases"  iconKey="purchases"  label="Purchases"  collapsed={collapsed} onClick={onMobileClose} />
-        <NavItem to="/expenses"   iconKey="expenses"   label="Expenses"   collapsed={collapsed} onClick={onMobileClose} />
-        <NavItem to="/inventory"  iconKey="inventory"  label="Inventory"  collapsed={collapsed} onClick={onMobileClose} />
-
-        <SectionLabel label="Finance" collapsed={collapsed} />
-        <NavItem to="/payables"          iconKey="payables"  label="Payables"          collapsed={collapsed} onClick={onMobileClose} />
-        <NavItem to="/accounts/banks"          iconKey="bank"      label="Bank Accounts"     collapsed={collapsed} onClick={onMobileClose} />
-        <NavItem to="/accounts/reconciliation" iconKey="reconcile" label="Reconciliation"    collapsed={collapsed} onClick={onMobileClose} />
-        <NavItem to="/accounts"                iconKey="accounts"  label="Chart of Accounts" collapsed={collapsed} onClick={onMobileClose} />
-        <NavItem to="/ledger"        iconKey="ledger"    label="Ledger"            collapsed={collapsed} onClick={onMobileClose} />
-        <NavItem to="/journal"       iconKey="journal"   label="Journal"           collapsed={collapsed} onClick={onMobileClose} />
-        <NavItem to="/trial-balance" iconKey="trialbal"  label="Trial Balance"     collapsed={collapsed} onClick={onMobileClose} />
-        <NavItem to="/gst"           iconKey="gst"       label="GST Reports"       collapsed={collapsed} onClick={onMobileClose} />
-        <NavItem to="/reports"       iconKey="reports"   label="Reports"           collapsed={collapsed} onClick={onMobileClose} />
-
-        {isFnB && (
+        {/* ── MAIN ── */}
+        <SectionHeader label="Main" open={sections.main} onToggle={() => toggleSection('main')} collapsed={collapsed} />
+        {show('main') && (
           <>
-            <SectionLabel label="F&B Ops" collapsed={collapsed} />
-            <NavItem to="/fnb/menu-master" iconKey="menu"       label="Menu Master" collapsed={collapsed} onClick={onMobileClose} />
-            <NavItem to="/wastage"         iconKey="wastage"    label="Wastage"     collapsed={collapsed} onClick={onMobileClose} />
-            <NavItem to="/production"      iconKey="production" label="Production"  collapsed={collapsed} onClick={onMobileClose} />
+            <NavItem to="/dashboard"  iconKey="dashboard"  label="Dashboard"      collapsed={collapsed} end onClick={onMobileClose} />
+            <NavItem to="/sales"      iconKey="sales"      label="Sales"          collapsed={collapsed} end onClick={onMobileClose} />
+            <NavItem to="/sales/import" iconKey="dailyrep" label="Sales Reports"  collapsed={collapsed} onClick={onMobileClose} />
+            <NavItem to="/purchases"  iconKey="purchases"  label="Purchases"      collapsed={collapsed} onClick={onMobileClose} />
+            <NavItem to="/expenses"   iconKey="expenses"   label="Expenses"       collapsed={collapsed} onClick={onMobileClose} />
+            <NavItem to="/inventory"  iconKey="inventory"  label="Inventory"      collapsed={collapsed} onClick={onMobileClose} />
           </>
         )}
 
-        <SectionLabel label="Admin" collapsed={collapsed} />
-        {isAdmin && (
-          <NavItem to="/members" iconKey="members" label="Members" collapsed={collapsed} onClick={onMobileClose} />
+        {/* ── FINANCE ── */}
+        <SectionHeader label="Finance" open={sections.finance} onToggle={() => toggleSection('finance')} collapsed={collapsed} />
+        {show('finance') && (
+          <>
+            <NavItem to="/payables"                iconKey="payables"  label="Payables"          collapsed={collapsed} onClick={onMobileClose} />
+            <NavItem to="/accounts/banks"          iconKey="bank"      label="Bank Accounts"     collapsed={collapsed} onClick={onMobileClose} />
+            <NavItem to="/accounts/reconciliation" iconKey="reconcile" label="Reconciliation"    collapsed={collapsed} onClick={onMobileClose} />
+            <NavItem to="/accounts"                iconKey="accounts"  label="Chart of Accounts" collapsed={collapsed} onClick={onMobileClose} />
+            <NavItem to="/ledger"                  iconKey="ledger"    label="Ledger"            collapsed={collapsed} onClick={onMobileClose} />
+            <NavItem to="/journal"                 iconKey="journal"   label="Journal"           collapsed={collapsed} onClick={onMobileClose} />
+            <NavItem to="/trial-balance"           iconKey="trialbal"  label="Trial Balance"     collapsed={collapsed} onClick={onMobileClose} />
+            <NavItem to="/gst"                     iconKey="gst"       label="GST Reports"       collapsed={collapsed} onClick={onMobileClose} />
+            <NavItem to="/reports"                 iconKey="reports"   label="Reports"           collapsed={collapsed} onClick={onMobileClose} />
+          </>
         )}
-        {isAdmin && (
-          <NavItem to="/admin/deletion-logs" iconKey="shield" label="Deletion Logs" collapsed={collapsed}
-            badge={deletionBadge} onClick={onMobileClose} />
+
+        {/* ── F&B OPS ── */}
+        {isFnB && (
+          <>
+            <SectionHeader label="F&B Ops" open={sections.fnb} onToggle={() => toggleSection('fnb')} collapsed={collapsed} />
+            {show('fnb') && (
+              <>
+                <NavItem to="/fnb/menu-master" iconKey="menu"       label="Menu Master" collapsed={collapsed} onClick={onMobileClose} />
+                <NavItem to="/wastage"         iconKey="wastage"    label="Wastage"     collapsed={collapsed} onClick={onMobileClose} />
+                <NavItem to="/production"      iconKey="production" label="Production"  collapsed={collapsed} onClick={onMobileClose} />
+              </>
+            )}
+          </>
         )}
-        <NavItem to="/company/profile" iconKey="settings" label="Company Profile" collapsed={collapsed} onClick={onMobileClose} />
+
+        {/* ── ADMIN ── */}
+        <SectionHeader label="Admin" open={sections.admin} onToggle={() => toggleSection('admin')} collapsed={collapsed} />
+        {show('admin') && (
+          <>
+            {isAdmin && (
+              <NavItem to="/members" iconKey="members" label="Members" collapsed={collapsed} onClick={onMobileClose} />
+            )}
+            {isAdmin && (
+              <NavItem to="/admin/deletion-logs" iconKey="shield" label="Deletion Logs"
+                collapsed={collapsed} badge={deletionBadge} onClick={onMobileClose} />
+            )}
+            <NavItem to="/company/profile" iconKey="settings" label="Company Profile" collapsed={collapsed} onClick={onMobileClose} />
+          </>
+        )}
       </nav>
 
       {/* User section */}
       <div style={{
         borderTop: '1px solid var(--border)',
-        padding: collapsed ? '10px 6px' : '10px 10px',
+        padding: collapsed ? '12px 6px' : '12px 12px',
         flexShrink: 0,
         display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        justifyContent: collapsed ? 'center' : 'flex-start',
+        flexDirection: 'column',
+        gap: 10,
       }}>
-        <div style={{
-          width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-          background: 'var(--accent-soft)', color: 'var(--accent)',
-          border: '1px solid rgba(99,102,241,0.25)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 11, fontWeight: 700,
-        }}>
-          {initials}
-        </div>
-        {!collapsed && (
-          <>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: collapsed ? 'center' : 'flex-start' }}>
+          {/* Avatar */}
+          <div style={{
+            width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+            background: 'var(--accent-soft)', color: 'var(--accent)',
+            border: '1.5px solid rgba(99,102,241,0.3)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 11, fontWeight: 700, letterSpacing: '0.05em',
+          }}>
+            {initials}
+          </div>
+
+          {/* Name + role */}
+          {!collapsed && (
             <div style={{ flex: 1, minWidth: 0 }}>
               <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {user?.displayName ?? user?.email}
+                {displayName}
               </p>
               {role && (
                 <p style={{ margin: 0, fontSize: 10, color: 'var(--fg-4)', textTransform: 'capitalize' }}>
@@ -292,22 +360,43 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                 </p>
               )}
             </div>
-            <button
-              type="button"
-              onClick={handleLogout}
-              title="Sign out"
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                width: 28, height: 28, borderRadius: 6, border: 'none', flexShrink: 0,
-                background: 'transparent', color: 'var(--fg-4)', cursor: 'pointer',
-                transition: 'background 0.15s',
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--neg-soft)'; e.currentTarget.style.color = 'var(--neg)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--fg-4)'; }}
-            >
-              <Ic d={ICONS.logout} size={15} />
-            </button>
-          </>
+          )}
+        </div>
+
+        {/* Sign out button */}
+        {!collapsed ? (
+          <button
+            type="button"
+            onClick={handleLogout}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              width: '100%', padding: '6px 10px', borderRadius: 7,
+              border: '1px solid var(--border)', background: 'transparent',
+              color: 'var(--fg-4)', cursor: 'pointer', fontSize: 12, fontWeight: 500,
+              transition: 'all 0.15s',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--neg-soft)'; e.currentTarget.style.color = 'var(--neg)'; e.currentTarget.style.borderColor = 'var(--neg)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--fg-4)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
+          >
+            <Ic d={ICONS.logout} size={13} />
+            Sign out
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleLogout}
+            title="Sign out"
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: 32, height: 28, borderRadius: 6, border: 'none', alignSelf: 'center',
+              background: 'transparent', color: 'var(--fg-4)', cursor: 'pointer',
+              transition: 'all 0.15s',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--neg-soft)'; e.currentTarget.style.color = 'var(--neg)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--fg-4)'; }}
+          >
+            <Ic d={ICONS.logout} size={14} />
+          </button>
         )}
       </div>
     </aside>

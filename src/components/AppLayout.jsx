@@ -62,7 +62,7 @@ export default function AppLayout() {
         <TopBar onMobileOpen={() => setMobileOpen(true)} />
         <main style={{
           flex: 1,
-          padding: '28px',
+          padding: '24px',
           marginTop: 'var(--topbar-h)',
         }}>
           <Outlet />

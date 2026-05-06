@@ -905,6 +905,19 @@ export default function SalesPage() {
   const isImport = salesEntryMode === 'Document Upload';
   const isBoth   = salesEntryMode === 'Both';
 
+  // ── Import-mode stats (computed from sales array) ──────────────────────────
+  const now = new Date();
+  const thisMonthSales = sales.filter((s) => {
+    const d = toJsDate(s.date);
+    return d && d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  });
+  const thisMonthTotal = thisMonthSales.reduce((sum, s) => sum + (s.grandTotal ?? 0), 0);
+  const importedCount  = sales.filter((s) => s.entrySource === 'import').length;
+  const lastUpload     = sales.reduce((latest, s) => {
+    const d = toJsDate(s.date);
+    return d && (!latest || d > latest) ? d : latest;
+  }, null);
+
   const [deleteTarget,   setDeleteTarget]   = useState(null);
   const [selectedIds,    setSelectedIds]    = useState(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
@@ -1004,22 +1017,21 @@ export default function SalesPage() {
   return (
     <div className="flex flex-col gap-6">
 
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-gray-900">
-              {isImport ? 'Sales — Import Mode' : 'Sales & Invoices'}
-            </h1>
-            <BizTypeBadge businessType={businessType} />
-          </div>
-          <p className="text-sm text-gray-500">
-            {isImport
-              ? 'Import sales reports from your POS system.'
-              : 'All invoices for the active company.'}
-          </p>
+      {/* ── Header ── */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--fg)', margin: 0 }}>
+            {isImport ? 'Sales' : 'Sales & Invoices'}
+          </h1>
+          <BizTypeBadge businessType={businessType} />
+          {isImport && (
+            <span style={{
+              fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+              background: 'var(--pos-soft)', color: 'var(--pos)', border: '1px solid var(--pos)',
+            }}>Import Mode</span>
+          )}
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           {(isPOS || isBoth) && (
             <Link to="/sales/new"
               className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700 transition">
@@ -1045,31 +1057,72 @@ export default function SalesPage() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">
+      {/* ── Import-mode stat cards ── */}
+      {(isImport || isBoth) && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+          {[
+            { label: 'Total Uploaded', value: String(importedCount) },
+            { label: 'This Month', value: formatCurrency(thisMonthTotal) },
+            { label: 'Total Records', value: String(filtered.length) },
+            {
+              label: 'Last Upload',
+              value: lastUpload
+                ? lastUpload.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
+                : '—',
+            },
+          ].map(({ label, value }) => (
+            <div key={label} style={{
+              borderRadius: 10, border: '1px solid var(--border)',
+              background: 'var(--card)', padding: '12px 16px',
+            }}>
+              <p style={{ margin: 0, fontSize: 11, color: 'var(--fg-4)', fontWeight: 500 }}>{label}</p>
+              <p style={{ margin: '4px 0 0', fontSize: 18, fontWeight: 700, color: 'var(--fg)' }}>{value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Filter bar (single row, scrollable) ── */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        overflowX: 'auto', scrollbarWidth: 'none',
+        borderRadius: 10, border: '1px solid var(--border)',
+        background: 'var(--card)', padding: '10px 14px',
+        flexShrink: 0,
+      }}>
         <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)}
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
-        <span className="text-xs text-gray-400">to</span>
+          style={{ flexShrink: 0, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--fg)', padding: '5px 10px', fontSize: 13, outline: 'none' }} />
+        <span style={{ flexShrink: 0, fontSize: 12, color: 'var(--fg-4)', userSelect: 'none' }}>to</span>
         <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)}
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+          style={{ flexShrink: 0, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--fg)', padding: '5px 10px', fontSize: 13, outline: 'none' }} />
+        <div style={{ width: 1, height: 20, background: 'var(--border)', flexShrink: 0 }} />
         <input type="search" value={customerSearch} placeholder="Search customer…"
           onChange={(e) => setCustomerSearch(e.target.value)}
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+          style={{ flex: 1, minWidth: 140, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--fg)', padding: '5px 10px', fontSize: 13, outline: 'none' }} />
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500">
+          style={{ flexShrink: 0, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--fg)', padding: '5px 10px', fontSize: 13, outline: 'none' }}>
           {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         {isBoth && (
           <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}
-            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500">
+            style={{ flexShrink: 0, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--fg)', padding: '5px 10px', fontSize: 13, outline: 'none' }}>
             {SOURCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         )}
         <button type="button" onClick={load}
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition">
+          style={{
+            flexShrink: 0, borderRadius: 7, border: '1px solid var(--border)',
+            background: 'transparent', color: 'var(--fg-3)', padding: '5px 12px',
+            fontSize: 13, cursor: 'pointer', transition: 'all 0.15s', fontWeight: 500,
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; e.currentTarget.style.color = 'var(--fg)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--fg-3)'; }}
+        >
           Refresh
         </button>
-        <span className="ml-auto text-xs text-gray-400">{filtered.length} invoices</span>
+        <span style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 12, color: 'var(--fg-4)', whiteSpace: 'nowrap' }}>
+          {filtered.length} {filtered.length === 1 ? 'invoice' : 'invoices'}
+        </span>
       </div>
 
       {error && (
