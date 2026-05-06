@@ -26,7 +26,7 @@ export default function AppLayout() {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  const sidebarW = collapsed ? 60 : 240;
+  const sidebarW = collapsed ? 60 : 220;
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
@@ -59,7 +59,12 @@ export default function AppLayout() {
           flexDirection: 'column',
         }}
       >
-        <TopBar onMobileOpen={() => setMobileOpen(true)} />
+        <TopBar
+          onMobileOpen={() => setMobileOpen(true)}
+          collapsed={collapsed}
+          onToggleCollapse={toggleCollapse}
+          sidebarW={sidebarW}
+        />
         <main style={{
           flex: 1,
           padding: '24px',

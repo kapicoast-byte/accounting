@@ -51,7 +51,7 @@ const TODAY = new Date().toLocaleDateString('en-IN', {
 });
 
 export default function DashboardPage() {
-  const { activeCompany, activeCompanyId, isConsolidated, consolidatedIds, companies } = useApp();
+  const { activeCompany, activeCompanyId, isConsolidated, consolidatedIds, companies, isParentCompany, toggleConsolidated } = useApp();
   const missingSalesCount = useMissingSalesCount(activeCompanyId);
   const { data, loading, error, refresh } = useDashboard({
     companyId: activeCompanyId,
@@ -68,10 +68,10 @@ export default function DashboardPage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
       {/* ── Header ── */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--fg)', margin: 0, letterSpacing: '-0.02em' }}>
+            <h1 style={{ fontSize: 24, fontWeight: 700, color: 'var(--fg)', margin: 0, letterSpacing: '-0.03em' }}>
               {activeCompany?.companyName ?? 'Dashboard'}
             </h1>
             {btLabel && (
@@ -87,22 +87,40 @@ export default function DashboardPage() {
           <p style={{ fontSize: 13, color: 'var(--fg-3)', margin: '5px 0 0' }}>{TODAY}</p>
         </div>
 
-        <button
-          type="button"
-          onClick={refresh}
-          disabled={loading}
-          style={{
-            padding: '6px 16px', borderRadius: 'var(--radius-sm)', fontSize: 13, fontWeight: 500,
-            border: '1px solid var(--border)', background: 'transparent',
-            color: 'var(--fg-3)', cursor: loading ? 'not-allowed' : 'pointer',
-            opacity: loading ? 0.5 : 1, transition: 'all 0.15s', flexShrink: 0,
-          }}
-          onMouseEnter={(e) => { if (!loading) { e.currentTarget.style.background = 'var(--hover)'; e.currentTarget.style.color = 'var(--fg)'; } }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--fg-3)'; }}
-        >
-          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-          {loading ? 'Refreshing…' : 'Refresh'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          {isParentCompany && (
+            <button
+              type="button"
+              onClick={toggleConsolidated}
+              style={{
+                padding: '6px 14px', borderRadius: 'var(--radius-sm)', fontSize: 12, fontWeight: 600,
+                border: `1px solid ${isConsolidated ? 'var(--info)' : 'var(--border)'}`,
+                background: isConsolidated ? 'var(--info-soft)' : 'transparent',
+                color: isConsolidated ? 'var(--info)' : 'var(--fg-3)',
+                cursor: 'pointer', transition: 'all 0.15s', flexShrink: 0,
+              }}
+            >
+              {isConsolidated ? 'Consolidated' : 'Consolidate'}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={refresh}
+            disabled={loading}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', borderRadius: 'var(--radius-sm)', fontSize: 13, fontWeight: 500,
+              border: '1px solid var(--border)', background: 'transparent',
+              color: 'var(--fg-3)', cursor: loading ? 'not-allowed' : 'pointer',
+              opacity: loading ? 0.5 : 1, transition: 'all 0.15s', flexShrink: 0,
+            }}
+            onMouseEnter={(e) => { if (!loading) { e.currentTarget.style.background = 'var(--hover)'; e.currentTarget.style.color = 'var(--fg)'; } }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--fg-3)'; }}
+          >
+            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+            {loading ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
       {/* ── Error banner ────────────────────────────────────────────────── */}
@@ -117,11 +135,18 @@ export default function DashboardPage() {
         <Link to="/sales/import" style={{ textDecoration: 'none' }}>
           <div style={{
             display: 'flex', alignItems: 'center', gap: 10,
-            borderRadius: 'var(--radius-sm)', border: '1px solid #f59e0b',
-            background: '#fffbeb', padding: '10px 16px', fontSize: 13,
-            color: '#b45309', cursor: 'pointer',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--warn)',
+            background: 'var(--warn-soft)',
+            padding: '10px 16px', fontSize: 13,
+            color: 'var(--warn)', cursor: 'pointer',
           }}>
-            <span style={{ fontSize: 16 }}>⚠️</span>
+            <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
             <span>
               <strong>{missingSalesCount} day{missingSalesCount !== 1 ? 's' : ''} missing sales data</strong>
               {' '}this month —{' '}

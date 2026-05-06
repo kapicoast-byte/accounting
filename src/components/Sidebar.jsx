@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { useRole } from '../hooks/useRole';
@@ -58,7 +58,7 @@ function NavItem({ to, iconKey, label, collapsed, badge, end = false, onClick })
         display: 'flex',
         alignItems: 'center',
         gap: 10,
-        padding: collapsed ? '9px 0' : '8px 12px',
+        padding: collapsed ? '10px 0' : '8px 12px',
         justifyContent: collapsed ? 'center' : 'flex-start',
         borderRadius: isActive && !collapsed ? '0 8px 8px 0' : 8,
         color: isActive ? 'var(--pos)' : 'var(--fg-3)',
@@ -84,7 +84,7 @@ function NavItem({ to, iconKey, label, collapsed, badge, end = false, onClick })
         e.currentTarget.style.color      = active ? 'var(--pos)' : 'var(--fg-3)';
       }}
     >
-      <Ic d={ICONS[iconKey]} size={16} />
+      <Ic d={ICONS[iconKey]} size={collapsed ? 20 : 16} />
       {!collapsed && <span style={{ flex: 1 }}>{label}</span>}
       {!collapsed && badge}
     </NavLink>
@@ -198,7 +198,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
     </span>
   ) : null;
 
-  const W = collapsed ? 60 : 240;
+  const W = collapsed ? 60 : 220;
 
   // In collapsed mode always show all items (section headers are just dividers)
   const show = (key) => collapsed || sections[key];
@@ -216,56 +216,65 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
         display: 'flex',
         flexDirection: 'column',
         zIndex: 40,
-        overflowX: 'hidden',
+        overflow: 'visible',
         overflowY: 'auto',
         scrollbarWidth: 'none',
       }}
     >
+      {/* Floating edge toggle tab */}
+      <button
+        type="button"
+        onClick={onToggleCollapse}
+        title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        style={{
+          position: 'absolute',
+          top: 22, right: -11,
+          width: 22, height: 22,
+          borderRadius: '50%',
+          border: '1px solid var(--border)',
+          background: 'var(--bg-2)',
+          color: 'var(--fg-4)',
+          cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 41,
+          boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
+          transition: 'background 0.15s, color 0.15s',
+          flexShrink: 0,
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; e.currentTarget.style.color = 'var(--fg)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-2)'; e.currentTarget.style.color = 'var(--fg-4)'; }}
+      >
+        <svg width={11} height={11} viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+          style={{ transform: collapsed ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
+          <path d="M15 18l-6-6 6-6" />
+        </svg>
+      </button>
       {/* Logo area */}
       <div style={{
         display: 'flex', alignItems: 'center',
-        justifyContent: collapsed ? 'center' : 'space-between',
-        padding: collapsed ? '16px 0' : '16px 14px',
+        justifyContent: 'center',
+        padding: collapsed ? '14px 0' : '14px 16px',
         borderBottom: '1px solid var(--border)',
         flexShrink: 0,
-        gap: 8,
+        minHeight: 56,
       }}>
-        {!collapsed && (
-          <Link to="/dashboard" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}>
-            <span style={{ fontSize: 20, fontWeight: 700, color: 'var(--fg)', letterSpacing: '-0.5px' }}>
+        {collapsed ? (
+          <Link to="/dashboard" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
+            <span style={{
+              width: 34, height: 34, borderRadius: 9, display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+              background: 'var(--pos-soft)', color: 'var(--pos)',
+              fontSize: 15, fontWeight: 800, letterSpacing: '-0.5px',
+            }}>B</span>
+          </Link>
+        ) : (
+          <Link to="/dashboard" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none', flex: 1 }}>
+            <span style={{ fontSize: 19, fontWeight: 700, color: 'var(--fg)', letterSpacing: '-0.5px' }}>
               Balance
             </span>
           </Link>
         )}
-        {collapsed && (
-          <Link to="/dashboard" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
-            <span style={{
-              width: 32, height: 32, borderRadius: 8, display: 'flex',
-              alignItems: 'center', justifyContent: 'center',
-              background: 'var(--pos-soft)', color: 'var(--pos)',
-              fontSize: 14, fontWeight: 800,
-            }}>B</span>
-          </Link>
-        )}
-        <button
-          type="button"
-          onClick={onToggleCollapse}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            width: 28, height: 28, borderRadius: 6, border: 'none',
-            background: 'transparent', color: 'var(--fg-4)', cursor: 'pointer',
-            flexShrink: 0, transition: 'background 0.15s',
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; e.currentTarget.style.color = 'var(--fg-2)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--fg-4)'; }}
-        >
-          <svg width={14} height={14} viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-            style={{ transform: collapsed ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-        </button>
       </div>
 
       {/* Company switcher */}
@@ -276,7 +285,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
       )}
 
       {/* Nav */}
-      <nav style={{ flex: 1, padding: collapsed ? '8px 6px' : '8px 8px', display: 'flex', flexDirection: 'column', gap: 1, overflowY: 'auto', scrollbarWidth: 'none' }}>
+      <nav style={{ flex: 1, padding: collapsed ? '8px 4px' : '8px 6px', display: 'flex', flexDirection: 'column', gap: 1, overflowY: 'auto', overflowX: 'hidden', scrollbarWidth: 'none' }}>
 
         {/* ── MAIN ── */}
         <SectionHeader label="Main" open={sections.main} onToggle={() => toggleSection('main')} collapsed={collapsed} />

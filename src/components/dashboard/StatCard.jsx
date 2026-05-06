@@ -74,7 +74,7 @@ export default function StatCard({ title, value, subtitle, accent = 'pos', trend
           <p style={{
             marginTop: 12, marginBottom: 0,
             fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 30, fontWeight: 600, lineHeight: 1,
+            fontSize: 28, fontWeight: 700, lineHeight: 1,
             color: valueColor,
           }}>
             {value}

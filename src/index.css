@@ -186,10 +186,21 @@ label {
   transition: width 0.2s ease, transform 0.2s ease;
 }
 
+/* Desktop-only sidebar expand button in TopBar */
+.topbar-expand {
+  display: none !important;
+}
+
+@media (min-width: 768px) {
+  .topbar-expand {
+    display: flex !important;
+  }
+}
+
 @media (max-width: 767px) {
   .sidebar-wrapper {
     transform: translateX(-100%);
-    width: 240px !important;
+    width: 220px !important;
   }
   .sidebar-wrapper.mobile-open {
     transform: translateX(0);
@@ -199,6 +210,10 @@ label {
   }
   .topbar-burger {
     display: flex !important;
+  }
+  /* Reset TopBar left on mobile — sidebar is off-screen */
+  .topbar-header {
+    left: 0 !important;
   }
 }
 
