@@ -1061,22 +1061,35 @@ export default function SalesPage() {
       {(isImport || isBoth) && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
           {[
-            { label: 'Total Uploaded', value: String(importedCount) },
-            { label: 'This Month', value: formatCurrency(thisMonthTotal) },
-            { label: 'Total Records', value: String(filtered.length) },
             {
-              label: 'Last Upload',
-              value: lastUpload
-                ? lastUpload.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
-                : '—',
+              label: 'Total Uploaded', value: String(importedCount), accent: 'var(--pos)', accentSoft: 'var(--pos-soft)',
+              icon: <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>,
             },
-          ].map(({ label, value }) => (
+            {
+              label: 'This Month', value: formatCurrency(thisMonthTotal), accent: 'var(--info)', accentSoft: 'var(--info-soft)',
+              icon: <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
+            },
+            {
+              label: 'Total Records', value: String(sales.length), accent: 'var(--accent)', accentSoft: 'var(--accent-soft)',
+              icon: <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>,
+            },
+            {
+              label: 'Last Upload', accent: 'var(--warn)', accentSoft: 'var(--warn-soft)',
+              value: lastUpload ? lastUpload.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—',
+              icon: <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
+            },
+          ].map(({ label, value, icon, accent, accentSoft }) => (
             <div key={label} style={{
               borderRadius: 10, border: '1px solid var(--border)',
               background: 'var(--card)', padding: '12px 16px',
             }}>
-              <p style={{ margin: 0, fontSize: 11, color: 'var(--fg-4)', fontWeight: 500 }}>{label}</p>
-              <p style={{ margin: '4px 0 0', fontSize: 18, fontWeight: 700, color: 'var(--fg)' }}>{value}</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: 6, background: accentSoft, color: accent, flexShrink: 0 }}>
+                  {icon}
+                </span>
+                <p style={{ margin: 0, fontSize: 11, color: 'var(--fg-4)', fontWeight: 500 }}>{label}</p>
+              </div>
+              <p style={{ margin: 0, fontSize: 18, fontWeight: 700, color: 'var(--fg)' }}>{value}</p>
             </div>
           ))}
         </div>
@@ -1151,17 +1164,43 @@ export default function SalesPage() {
         {loading ? (
           <div className="flex items-center justify-center py-12"><LoadingSpinner /></div>
         ) : filtered.length === 0 ? (
-          <div className="px-4 py-12 text-center">
-            <p className="text-sm text-gray-400">
-              {sales.length === 0
-                ? isImport ? 'No imported sales yet.' : 'No invoices yet.'
-                : 'No invoices match the filters.'}
-            </p>
-            {sales.length === 0 && isImport && (
-              <button type="button" onClick={() => setImportOpen(true)}
-                className="mt-3 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition">
-                Import Sales Report
-              </button>
+          <div style={{ padding: '48px 24px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+            {sales.length === 0 ? (
+              <>
+                <div style={{ width: 48, height: 48, borderRadius: 12, background: 'var(--pos-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--pos)' }}>
+                  <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                  </svg>
+                </div>
+                <div>
+                  <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--fg)' }}>
+                    {isImport ? 'No sales reports yet' : 'No invoices yet'}
+                  </p>
+                  <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--fg-4)' }}>
+                    {isImport
+                      ? 'Import your first sales report to get started'
+                      : 'Create your first invoice to get started'}
+                  </p>
+                </div>
+                {isImport && (
+                  <button type="button" onClick={() => setImportOpen(true)}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                      padding: '7px 16px', borderRadius: 7, border: 'none',
+                      background: 'var(--pos)', color: '#fff',
+                      fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                    }}>
+                    <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    Import Sales Report
+                  </button>
+                )}
+              </>
+            ) : (
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--fg-4)' }}>No invoices match the filters.</p>
             )}
           </div>
         ) : (

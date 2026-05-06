@@ -41,6 +41,35 @@ html, body, #root {
   --topbar-h: 60px;
 }
 
+/* ── Light theme ── */
+[data-theme="light"] {
+  --bg: #f8fafc;
+  --bg-2: #f1f5f9;
+  --card: #ffffff;
+  --card-2: #f8fafc;
+  --border: rgba(0,0,0,0.08);
+  --border-2: rgba(0,0,0,0.14);
+  --hover: #f1f5f9;
+  --fg: #0f172a;
+  --fg-2: #334155;
+  --fg-3: #64748b;
+  --fg-4: #94a3b8;
+  --pos: #16a34a;
+  --pos-soft: rgba(22,163,74,0.10);
+  --neg: #dc2626;
+  --neg-soft: rgba(220,38,38,0.10);
+  --warn: #d97706;
+  --warn-soft: rgba(217,119,6,0.10);
+  --info: #2563eb;
+  --info-soft: rgba(37,99,235,0.10);
+  --accent: #4f46e5;
+  --accent-soft: rgba(79,70,229,0.10);
+}
+
+[data-theme="light"] .navbar-logo {
+  mix-blend-mode: normal;
+}
+
 /* ── Global Form Elements ── */
 input, select, textarea {
   background: var(--bg-2) !important;

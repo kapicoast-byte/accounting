@@ -132,10 +132,23 @@ function loadSections() {
 
 // ── Main sidebar ───────────────────────────────────────────────────────────────
 
+function getStoredTheme() {
+  return localStorage.getItem('theme') || 'light';
+}
+
 export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMobileClose }) {
   const navigate  = useNavigate();
   const { user, businessType, activeCompanyId } = useApp();
   const { role, isAdmin }                        = useRole();
+
+  const [theme, setTheme] = useState(getStoredTheme);
+
+  function toggleTheme() {
+    const next = theme === 'light' ? 'dark' : 'light';
+    localStorage.setItem('theme', next);
+    document.documentElement.setAttribute('data-theme', next);
+    setTheme(next);
+  }
 
   const [monthCount, setMonthCount] = useState(null);
 
@@ -363,40 +376,93 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
           )}
         </div>
 
-        {/* Sign out button */}
+        {/* Theme toggle + Sign out */}
         {!collapsed ? (
-          <button
-            type="button"
-            onClick={handleLogout}
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-              width: '100%', padding: '6px 10px', borderRadius: 7,
-              border: '1px solid var(--border)', background: 'transparent',
-              color: 'var(--fg-4)', cursor: 'pointer', fontSize: 12, fontWeight: 500,
-              transition: 'all 0.15s',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--neg-soft)'; e.currentTarget.style.color = 'var(--neg)'; e.currentTarget.style.borderColor = 'var(--neg)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--fg-4)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
-          >
-            <Ic d={ICONS.logout} size={13} />
-            Sign out
-          </button>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              type="button"
+              onClick={toggleTheme}
+              title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                flex: '0 0 auto', padding: '6px 10px', borderRadius: 7,
+                border: '1px solid var(--border)', background: 'transparent',
+                color: 'var(--fg-4)', cursor: 'pointer', fontSize: 12, fontWeight: 500,
+                transition: 'all 0.15s',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; e.currentTarget.style.color = 'var(--fg-2)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--fg-4)'; }}
+            >
+              {theme === 'light' ? (
+                <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+                </svg>
+              ) : (
+                <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="5" />
+                  <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                </svg>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={handleLogout}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                flex: 1, padding: '6px 10px', borderRadius: 7,
+                border: '1px solid var(--border)', background: 'transparent',
+                color: 'var(--fg-4)', cursor: 'pointer', fontSize: 12, fontWeight: 500,
+                transition: 'all 0.15s',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--neg-soft)'; e.currentTarget.style.color = 'var(--neg)'; e.currentTarget.style.borderColor = 'var(--neg)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--fg-4)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
+            >
+              <Ic d={ICONS.logout} size={13} />
+              Sign out
+            </button>
+          </div>
         ) : (
-          <button
-            type="button"
-            onClick={handleLogout}
-            title="Sign out"
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              width: 32, height: 28, borderRadius: 6, border: 'none', alignSelf: 'center',
-              background: 'transparent', color: 'var(--fg-4)', cursor: 'pointer',
-              transition: 'all 0.15s',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--neg-soft)'; e.currentTarget.style.color = 'var(--neg)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--fg-4)'; }}
-          >
-            <Ic d={ICONS.logout} size={14} />
-          </button>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+            <button
+              type="button"
+              onClick={toggleTheme}
+              title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 32, height: 28, borderRadius: 6, border: 'none',
+                background: 'transparent', color: 'var(--fg-4)', cursor: 'pointer',
+                transition: 'all 0.15s',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; e.currentTarget.style.color = 'var(--fg-2)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--fg-4)'; }}
+            >
+              {theme === 'light' ? (
+                <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+                </svg>
+              ) : (
+                <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="5" />
+                  <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                </svg>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={handleLogout}
+              title="Sign out"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 32, height: 28, borderRadius: 6, border: 'none',
+                background: 'transparent', color: 'var(--fg-4)', cursor: 'pointer',
+                transition: 'all 0.15s',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--neg-soft)'; e.currentTarget.style.color = 'var(--neg)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--fg-4)'; }}
+            >
+              <Ic d={ICONS.logout} size={14} />
+            </button>
+          </div>
         )}
       </div>
     </aside>
