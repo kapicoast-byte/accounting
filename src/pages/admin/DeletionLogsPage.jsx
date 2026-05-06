@@ -6,6 +6,7 @@ import { startOfDay, endOfDay } from '../../utils/dateUtils';
 import { formatCurrency } from '../../utils/format';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import Modal from '../../components/Modal';
+import FilterBar from '../../components/FilterBar';
 
 function fmtTimestamp(ts) {
   if (!ts) return '—';
@@ -113,30 +114,31 @@ export default function DeletionLogsPage() {
         </p>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">
-        <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)}
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
-        <span className="text-xs text-gray-400">to</span>
-        <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)}
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
-        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500">
-          <option value="">All types</option>
-          <option value="sale">Sales</option>
-          <option value="purchase">Purchases</option>
-        </select>
-        <select value={userFilter} onChange={(e) => setUserFilter(e.target.value)}
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500">
-          <option value="">All admins</option>
-          {deletors.map((d) => <option key={d} value={d}>{d}</option>)}
-        </select>
-        <button type="button" onClick={load}
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">
-          Refresh
-        </button>
-        <span className="ml-auto text-xs text-gray-400">{filtered.length} records</span>
-      </div>
+      <FilterBar
+        fromDate={fromDate} onFromDate={setFromDate}
+        toDate={toDate}     onToDate={setToDate}
+        selects={[
+          {
+            value: typeFilter,
+            onChange: setTypeFilter,
+            options: [
+              { value: '', label: 'All types' },
+              { value: 'sale', label: 'Sales' },
+              { value: 'purchase', label: 'Purchases' },
+            ],
+          },
+          {
+            value: userFilter,
+            onChange: setUserFilter,
+            options: [
+              { value: '', label: 'All admins' },
+              ...deletors.map((d) => ({ value: d, label: d })),
+            ],
+          },
+        ]}
+        onRefresh={load}
+        count={`${filtered.length} records`}
+      />
 
       {error && (
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

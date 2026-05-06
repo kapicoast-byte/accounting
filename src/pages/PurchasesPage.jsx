@@ -7,6 +7,7 @@ import { startOfDay, endOfDay, toJsDate } from '../utils/dateUtils';
 import { formatCurrency } from '../utils/format';
 import LoadingSpinner from '../components/LoadingSpinner';
 import RoleGuard from '../components/RoleGuard';
+import FilterBar from '../components/FilterBar';
 import PaymentStatusBadge from '../components/sales/PaymentStatusBadge';
 import PayablePaymentModal from '../components/purchases/PayablePaymentModal';
 import DeleteRecordModal from '../components/DeleteRecordModal';
@@ -125,23 +126,14 @@ export default function PurchasesPage() {
         </RoleGuard>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">
-        <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)}
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
-        <span className="text-xs text-gray-400">to</span>
-        <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)}
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
-        <input type="search" value={vendorSearch} placeholder="Search vendor…"
-          onChange={(e) => setVendorSearch(e.target.value)}
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500">
-          {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-        <button type="button" onClick={load}
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">Refresh</button>
-        <span className="ml-auto text-xs text-gray-400">{filtered.length} bills</span>
-      </div>
+      <FilterBar
+        fromDate={fromDate} onFromDate={setFromDate}
+        toDate={toDate}     onToDate={setToDate}
+        search={vendorSearch} onSearch={setVendorSearch} searchPlaceholder="Search vendor…"
+        selects={[{ value: statusFilter, onChange: setStatusFilter, options: STATUS_OPTIONS }]}
+        onRefresh={load}
+        count={`${filtered.length} bills`}
+      />
 
       {error && <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 

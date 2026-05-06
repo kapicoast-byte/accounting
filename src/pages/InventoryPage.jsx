@@ -13,6 +13,7 @@ import RoleGuard from '../components/RoleGuard';
 import ItemFormModal from '../components/inventory/ItemFormModal';
 import StockAdjustmentModal from '../components/inventory/StockAdjustmentModal';
 import StockValuationCard from '../components/inventory/StockValuationCard';
+import FilterBar from '../components/FilterBar';
 
 const ALL = 'All';
 
@@ -137,39 +138,23 @@ export default function InventoryPage() {
         </div>
       )}
 
-      <div className="rounded-xl border border-gray-200 bg-white">
-        <div className="flex flex-wrap items-center gap-3 border-b border-gray-200 px-4 py-3">
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search items…"
-            className="w-full max-w-xs rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          />
-          <select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          >
-            <option value={ALL}>All categories</option>
-            {INVENTORY_CATEGORIES.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={lowStockOnly}
-              onChange={(e) => setLowStockOnly(e.target.checked)}
-            />
+      <FilterBar
+        search={search} onSearch={setSearch} searchPlaceholder="Search items…"
+        selects={[{
+          value: categoryFilter,
+          onChange: setCategoryFilter,
+          options: [{ value: ALL, label: 'All categories' }, ...INVENTORY_CATEGORIES.map((c) => ({ value: c, label: c }))],
+        }]}
+        extra={
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--fg-3)', cursor: 'pointer', flexShrink: 0 }}>
+            <input type="checkbox" checked={lowStockOnly} onChange={(e) => setLowStockOnly(e.target.checked)} />
             Low stock only
           </label>
-          <div className="ml-auto text-xs text-gray-500">
-            Showing {filtered.length} of {items.length}
-            {isConsolidated && ` (${consolidatedIds.length} companies)`}
-          </div>
-        </div>
+        }
+        count={`${filtered.length} of ${items.length}${isConsolidated ? ` (${consolidatedIds.length} cos)` : ''}`}
+      />
 
+      <div className="rounded-xl border border-gray-200 bg-white">
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <LoadingSpinner />

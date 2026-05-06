@@ -5,6 +5,7 @@ import { formatCurrency } from '../utils/format';
 import { startOfDay, endOfDay } from '../utils/dateUtils';
 import { exportCSV } from '../utils/csvUtils';
 import LoadingSpinner from '../components/LoadingSpinner';
+import FilterBar from '../components/FilterBar';
 
 // ─── date helpers ─────────────────────────────────────────────────────────────
 
@@ -487,22 +488,13 @@ export default function GSTPage() {
         </div>
       </div>
 
-      {/* Date filter */}
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">
-        <span className="text-xs font-medium text-gray-500">Period:</span>
-        <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)}
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
-        <span className="text-xs text-gray-400">to</span>
-        <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)}
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
-        <button type="button" onClick={load}
-          className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700">
-          Generate
-        </button>
-        {period && (
-          <span className="ml-auto text-xs font-medium text-gray-600">{period}</span>
-        )}
-      </div>
+      <FilterBar
+        label="Period:"
+        fromDate={fromDate} onFromDate={setFromDate}
+        toDate={toDate}     onToDate={setToDate}
+        onRefresh={load}    refreshLabel="Generate"
+        count={period || undefined}
+      />
 
       {error && (
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
