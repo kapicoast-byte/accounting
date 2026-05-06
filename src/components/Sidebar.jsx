@@ -103,19 +103,19 @@ function SectionHeader({ label, open, onToggle, collapsed }) {
       onClick={onToggle}
       style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        width: '100%', padding: '12px 12px 4px',
+        width: '100%', padding: '12px 16px',
         background: 'transparent', border: 'none', cursor: 'pointer',
         color: 'var(--fg-4)',
       }}
       onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--fg-2)'; }}
       onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--fg-4)'; }}
     >
-      <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+      <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
         {label}
       </span>
       <svg width={12} height={12} viewBox="0 0 24 24" fill="none"
         stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-        style={{ transform: open ? 'none' : 'rotate(-90deg)', transition: 'transform 0.2s', flexShrink: 0 }}>
+        style={{ transform: open ? 'none' : 'rotate(90deg)', transition: 'transform 0.2s', flexShrink: 0 }}>
         <path d="M6 9l6 6 6-6" />
       </svg>
     </button>
@@ -232,12 +232,9 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
       }}>
         {!collapsed && (
           <Link to="/dashboard" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}>
-            <img
-              src="/balance-logo.png"
-              alt="Balance"
-              className="navbar-logo"
-              style={{ height: 28, width: 'auto' }}
-            />
+            <span style={{ fontSize: 20, fontWeight: 700, color: 'var(--fg)', letterSpacing: '-0.5px' }}>
+              Balance
+            </span>
           </Link>
         )}
         {collapsed && (

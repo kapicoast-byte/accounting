@@ -1095,37 +1095,36 @@ export default function SalesPage() {
         </div>
       )}
 
-      {/* ── Filter bar (single row, scrollable) ── */}
+      {/* ── Filter bar ── */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 8,
-        overflowX: 'auto', scrollbarWidth: 'none',
-        borderRadius: 10, border: '1px solid var(--border)',
+        display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+        borderRadius: 'var(--radius)', border: '1px solid var(--border)',
         background: 'var(--card)', padding: '10px 14px',
-        flexShrink: 0,
       }}>
-        <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)}
-          style={{ flexShrink: 0, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--fg)', padding: '5px 10px', fontSize: 13, outline: 'none' }} />
-        <span style={{ flexShrink: 0, fontSize: 12, color: 'var(--fg-4)', userSelect: 'none' }}>to</span>
-        <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)}
-          style={{ flexShrink: 0, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--fg)', padding: '5px 10px', fontSize: 13, outline: 'none' }} />
-        <div style={{ width: 1, height: 20, background: 'var(--border)', flexShrink: 0 }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)}
+            style={{ width: 140, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-2)', color: 'var(--fg)', padding: '5px 8px', fontSize: 13, outline: 'none' }} />
+          <span style={{ fontSize: 12, color: 'var(--fg-4)', userSelect: 'none' }}>to</span>
+          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)}
+            style={{ width: 140, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-2)', color: 'var(--fg)', padding: '5px 8px', fontSize: 13, outline: 'none' }} />
+        </div>
         <input type="search" value={customerSearch} placeholder="Search customer…"
           onChange={(e) => setCustomerSearch(e.target.value)}
-          style={{ flex: 1, minWidth: 140, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--fg)', padding: '5px 10px', fontSize: 13, outline: 'none' }} />
+          style={{ flex: '1 1 150px', minWidth: 150, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-2)', color: 'var(--fg)', padding: '5px 10px', fontSize: 13, outline: 'none' }} />
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
-          style={{ flexShrink: 0, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--fg)', padding: '5px 10px', fontSize: 13, outline: 'none' }}>
+          style={{ flex: '1 1 120px', minWidth: 120, maxWidth: 160, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-2)', color: 'var(--fg)', padding: '5px 10px', fontSize: 13, outline: 'none' }}>
           {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         {isBoth && (
           <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}
-            style={{ flexShrink: 0, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--fg)', padding: '5px 10px', fontSize: 13, outline: 'none' }}>
+            style={{ flex: '1 1 110px', minWidth: 110, maxWidth: 150, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-2)', color: 'var(--fg)', padding: '5px 10px', fontSize: 13, outline: 'none' }}>
             {SOURCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         )}
         <button type="button" onClick={load}
           style={{
-            flexShrink: 0, borderRadius: 7, border: '1px solid var(--border)',
-            background: 'transparent', color: 'var(--fg-3)', padding: '5px 12px',
+            flexShrink: 0, whiteSpace: 'nowrap', borderRadius: 7, border: '1px solid var(--border)',
+            background: 'transparent', color: 'var(--fg-3)', padding: '5px 14px',
             fontSize: 13, cursor: 'pointer', transition: 'all 0.15s', fontWeight: 500,
           }}
           onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; e.currentTarget.style.color = 'var(--fg)'; }}
